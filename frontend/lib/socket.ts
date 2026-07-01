@@ -1,4 +1,4 @@
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "";
 
 export interface SocketOptions {
   roomId: string;
@@ -8,6 +8,13 @@ export interface SocketOptions {
   privacy?: "public" | "private";
 }
 
+const DEFAULT_WS =
+  typeof window !== "undefined"
+    ? `${
+        window.location.protocol === "https:" ? "wss" : "ws"
+      }://${window.location.host}`
+    : "ws://localhost:3000";
+
 export function createSocket(
   roomIdOrOptions: string | SocketOptions,
   userId?: string,
@@ -15,33 +22,37 @@ export function createSocket(
 ): WebSocket {
   let opts: SocketOptions;
 
-  // Hỗ trợ cả 2 cách gọi:
-  // createSocket(roomId, userId, userName)           ← cách cũ, không break
-  // createSocket({ roomId, userId, userName, ... })  ← cách mới cho KTV
+  // Hỗ trợ:
+  // createSocket(roomId, userId, userName)
+  // createSocket({ roomId, userId, userName, ... })
+
   if (typeof roomIdOrOptions === "string") {
     opts = {
-      roomId:   roomIdOrOptions,
-      userId:   userId ?? "",
+      roomId: roomIdOrOptions,
+      userId: userId ?? "",
       userName: userName ?? "Khách",
       roomType: "music",
-      privacy:  "public",
+      privacy: "public",
     };
   } else {
     opts = {
       roomType: "music",
-      privacy:  "public",
+      privacy: "public",
       ...roomIdOrOptions,
     };
   }
 
-  const base = WS_URL.replace(/\/$/, "");
+  const base = (WS_URL || DEFAULT_WS).replace(/\/$/, "");
+
   const params = new URLSearchParams({
-    roomId:   opts.roomId,
-    userId:   opts.userId,
+    roomId: opts.roomId,
+    userId: opts.userId,
     userName: opts.userName || "Khách",
     roomType: opts.roomType ?? "music",
-    privacy:  opts.privacy  ?? "public",
+    privacy: opts.privacy ?? "public",
   });
 
-  return new WebSocket(`${base}/ws?${params.toString()}`);
+  return new WebSocket(
+    `${base}/ws?${params.toString()}`
+  );
 }

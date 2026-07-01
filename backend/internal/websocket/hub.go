@@ -20,7 +20,7 @@ var hostOnlyMessages = map[string]bool{
 	"SYNC_PROGRESS": true,
 	"JOIN_APPROVE":  true,
 	"JOIN_REJECT":   true,
-	"END_ROOM":      true, // ← chỉ host được kết thúc phòng
+	"END_ROOM":      true,
 }
 
 type Message struct {
@@ -45,20 +45,21 @@ type Participant struct {
 }
 
 type Room struct {
-	ID          string
-	Type        string
-	Privacy     string
-	MaxUsers    int
-	HostID      string
-	Clients     map[*Client]bool
-	Pending     map[string]*Client
-	CurrentSong string
-	IsPlaying   bool
-	Progress    float64
-	LastUpdated time.Time
-	CloseTimer  *time.Timer
-	KTV         *KTVState   // ← KTV state
-	Queue       *QueueState // ← Danh sách chờ bài hát của Music Room
+	ID            string
+	Type          string
+	Privacy       string
+	MaxUsers      int
+	HostID        string
+	Clients       map[*Client]bool
+	Pending       map[string]*Client
+	ApprovedUsers map[string]bool // user đã được duyệt vào phòng riêng tư
+	CurrentSong   string
+	IsPlaying     bool
+	Progress      float64
+	LastUpdated   time.Time
+	CloseTimer    *time.Timer
+	KTV           *KTVState
+	Queue         *QueueState
 }
 
 func (r *Room) CurrentProgress() float64 {
@@ -93,8 +94,6 @@ func (r *Room) isHost(userID string) bool {
 	return r.HostID == userID
 }
 
-// QueueSongs trả về danh sách bài hát trong hàng chờ — nil-safe dù room.Queue
-// chưa được khởi tạo (phòng tạo từ trước khi có tính năng này).
 func (r *Room) QueueSongs() []QueueSong {
 	if r.Queue == nil {
 		return []QueueSong{}
@@ -126,14 +125,14 @@ type Hub struct {
 	Broadcast   chan Message
 	MessageRepo *repository.MessageRepo
 	RoomRepo    *repository.RoomRepo
-	KTVRepo     *repository.KTVRepo // ← KTV repo
+	KTVRepo     *repository.KTVRepo
 	mu          sync.RWMutex
 }
 
 func NewHub(
 	messageRepo *repository.MessageRepo,
 	roomRepo *repository.RoomRepo,
-	ktvRepo *repository.KTVRepo, // ← tham số mới
+	ktvRepo *repository.KTVRepo,
 ) *Hub {
 	return &Hub{
 		Rooms:       make(map[string]*Room),
@@ -195,20 +194,21 @@ func (h *Hub) handleRegister(client *Client) {
 		}
 
 		room = &Room{
-			ID:          client.RoomID,
-			Type:        roomType,
-			Privacy:     privacy,
-			MaxUsers:    maxRoomUsers,
-			HostID:      hostID,
-			Clients:     make(map[*Client]bool),
-			Pending:     make(map[string]*Client),
-			CurrentSong: "/music/sao-hang-a.mp3",
-			IsPlaying:   false,
-			Progress:    0,
-			LastUpdated: time.Now(),
-			CloseTimer:  nil,
-			KTV:         &KTVState{},   // ← khởi tạo KTV state
-			Queue:       &QueueState{}, // ← khởi tạo hàng chờ bài hát
+			ID:            client.RoomID,
+			Type:          roomType,
+			Privacy:       privacy,
+			MaxUsers:      maxRoomUsers,
+			HostID:        hostID,
+			Clients:       make(map[*Client]bool),
+			Pending:       make(map[string]*Client),
+			ApprovedUsers: map[string]bool{hostID: true}, // host luôn được duyệt sẵn
+			CurrentSong:   "/music/sao-hang-a.mp3",
+			IsPlaying:     false,
+			Progress:      0,
+			LastUpdated:   time.Now(),
+			CloseTimer:    nil,
+			KTV:           &KTVState{},
+			Queue:         &QueueState{},
 		}
 
 		h.Rooms[client.RoomID] = room
@@ -242,7 +242,9 @@ func (h *Hub) handleRegister(client *Client) {
 		return
 	}
 
-	if room.Privacy == "private" && client.UserID != room.HostID {
+	// Phòng riêng tư: chỉ chặn user chưa từng được duyệt
+	// Host và user đã được duyệt trước đó (ví dụ reload) đều vào thẳng
+	if room.Privacy == "private" && !room.ApprovedUsers[client.UserID] {
 		room.Pending[client.UserID] = client
 
 		h.notifyHostLocked(room, "JOIN_REQUEST", map[string]string{
@@ -257,6 +259,10 @@ func (h *Hub) handleRegister(client *Client) {
 		h.mu.Unlock()
 		log.Printf("[Hub] User %s đang chờ duyệt vào phòng riêng tư %s", client.UserID, client.RoomID)
 		return
+	}
+
+	if room.Privacy == "private" && room.ApprovedUsers[client.UserID] && client.UserID != room.HostID {
+		log.Printf("[Hub] User %s (đã duyệt trước) reconnect vào phòng riêng tư %s", client.UserID, client.RoomID)
 	}
 
 	room.Clients[client] = true
@@ -304,17 +310,12 @@ func (h *Hub) handleUnregister(client *Client) {
 		})
 
 		h.mu.Unlock()
-		log.Printf("[Hub] Phòng %s đang trống, sẽ đóng sau 5 giây nếu không ai vào lại", roomID)
+		log.Printf("[Hub] Phòng %s đang trống, sẽ đóng sau 5 giây nếu không có ai vào lại", roomID)
 		return
 	}
 
-	if room.HostID == client.UserID {
-		for next := range room.Clients {
-			room.HostID = next.UserID
-			log.Printf("[Hub] Host mới phòng %s: %s", client.RoomID, room.HostID)
-			break
-		}
-	}
+	// KHÔNG gán host mới ở đây — host chỉ đổi khi họ chủ động LEAVE_ROOM
+	// Nếu host chỉ disconnect/reload thì HostID giữ nguyên, họ reconnect vẫn là host
 
 	h.mu.Unlock()
 	h.broadcastRoomState(client.RoomID)
@@ -329,14 +330,12 @@ func (h *Hub) handleBroadcast(msg Message) {
 		return
 	}
 
-	// ── KTV: delegate toàn bộ sang ktv_handler.go ──
 	if IsKTVMessage(msg.Type) {
 		h.mu.Unlock()
 		h.handleKTVMessage(room, msg)
 		return
 	}
 
-	// ── Danh sách chờ bài hát (Music Room): delegate sang queue_handler.go ──
 	if IsQueueMessage(msg.Type) {
 		h.mu.Unlock()
 		h.handleQueueMessage(room, msg)
@@ -357,18 +356,24 @@ func (h *Hub) handleBroadcast(msg Message) {
 		h.handleJoinRejectLocked(room, msg)
 
 	case "LEAVE_ROOM":
-		// Không cần đổi state phòng ở đây. Phía client (useRoomSocket.ts ->
-		// leaveRoom()) tự đóng kết nối WS ngay sau khi gửi message này, nên
-		// ReadPump của client sẽ nhận lỗi và đẩy client vào h.Unregister.
-		// handleUnregister (ở trên) đã lo sẵn việc xóa client khỏi room,
-		// gán host mới nếu cần, và broadcast ROOM_STATE mới cho người còn lại.
-		// Case này chỉ để chặn message không bị rơi vào nhánh broadcast
-		// nguyên văn ở cuối hàm.
+		// Phương án A: host chủ động rời phòng → gán host mới ngay lập tức
+		// Member thường rời → không cần làm gì thêm (handleUnregister lo)
+		if room.isHost(msg.SenderID) && len(room.Clients) > 1 {
+			for next := range room.Clients {
+				if next.UserID != msg.SenderID {
+					room.HostID = next.UserID
+					room.ApprovedUsers[next.UserID] = true // host mới cũng được duyệt sẵn
+					log.Printf("[Hub] Host %s rời phòng %s, host mới: %s",
+						msg.SenderID, msg.RoomID, room.HostID)
+					break
+				}
+			}
+		}
+		// Việc xóa client khỏi room.Clients và broadcast ROOM_STATE mới
+		// sẽ do handleUnregister xử lý khi WS thực sự đóng
 
 	case "END_ROOM":
-		// Quyền hạn (chỉ host) đã được kiểm tra ở hostOnlyMessages phía trên.
-		// Xử lý thật sự (broadcast ROOM_ENDED + dọn phòng) nằm ở hàm endRoom,
-		// được gọi sau khi unlock — vì nó cần tự lock/unlock lại nhiều lần.
+		// Quyền đã được kiểm tra ở hostOnlyMessages — xử lý thật sau unlock
 
 	case "SYNC_PLAY":
 		var p SyncPayload
@@ -421,14 +426,12 @@ func (h *Hub) handleBroadcast(msg Message) {
 		return
 	}
 
-	// Client tự đóng WS ngay sau khi gửi LEAVE_ROOM — không cần server làm
-	// gì thêm, handleUnregister sẽ broadcast ROOM_STATE mới khi client đó
-	// thực sự rời (xem comment ở case "LEAVE_ROOM" phía trên).
 	if msg.Type == "LEAVE_ROOM" {
+		// Không làm gì thêm — handleUnregister sẽ broadcast ROOM_STATE
+		// mới sau khi WS đóng và client bị xóa khỏi room.Clients
 		return
 	}
 
-	// Host kết thúc phòng: broadcast ROOM_ENDED cho tất cả, dọn phòng + DB.
 	if msg.Type == "END_ROOM" {
 		h.endRoom(msg.RoomID, "Phòng đã được host kết thúc")
 		return
@@ -437,17 +440,6 @@ func (h *Hub) handleBroadcast(msg Message) {
 	h.broadcastToRoom(msg.RoomID, msg, msg.SenderID)
 }
 
-// endRoom đóng phòng NGAY khi host chủ động kết thúc (message END_ROOM).
-// Khác với closeRoomIfEmpty (chờ 5s phòng trống mới đóng), hàm này:
-//  1. Broadcast "ROOM_ENDED" cho TẤT CẢ client còn lại trong phòng — phía
-//     client (useRoomSocket.ts, case "ROOM_ENDED") sẽ tự đóng WS và điều
-//     hướng người dùng về trang chủ.
-//  2. Đóng Send channel của từng client để WritePump của họ thoát gọn gàng.
-//  3. Xóa phòng khỏi h.Rooms, đánh dấu đã đóng trong MongoDB, xóa lịch sử chat.
-//
-// Lưu ý: phải broadcast TRƯỚC khi xóa phòng khỏi h.Rooms, vì broadcastToRoom
-// cần tìm phòng trong map đó để lấy danh sách client — xóa trước sẽ làm
-// ROOM_ENDED không gửi được cho ai cả.
 func (h *Hub) endRoom(roomID string, reason string) {
 	h.mu.Lock()
 	room, exists := h.Rooms[roomID]
@@ -552,6 +544,7 @@ func (h *Hub) handleJoinApproveLocked(room *Room, msg Message) {
 	}
 
 	delete(room.Pending, p.UserID)
+	room.ApprovedUsers[p.UserID] = true // ghi nhớ đã duyệt — reload sẽ vào thẳng
 	h.removeOldClientLocked(room, client)
 	room.Clients[client] = true
 
@@ -801,7 +794,7 @@ func (h *Hub) removeOldClientLocked(room *Room, newClient *Client) {
 			default:
 			}
 
-			log.Printf("[Hub] Đã kick session cũ của user %s trong phòng %s ra khỏi map", newClient.UserID, newClient.RoomID)
+			log.Printf("[Hub] Đã kick session cũ của user %s trong phòng %s", newClient.UserID, newClient.RoomID)
 		}
 	}
 }
@@ -833,7 +826,6 @@ func mustMarshal(v any) []byte {
 	return b
 }
 
-// setClientRole cập nhật role cho một client trong phòng (thread-safe)
 func (h *Hub) setClientRole(room *Room, userID string, role model.Role) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -845,7 +837,6 @@ func (h *Hub) setClientRole(room *Room, userID string, role model.Role) {
 	}
 }
 
-// broadcastRoleUpdate thông báo thay đổi role cho toàn phòng
 func (h *Hub) broadcastRoleUpdate(roomID, userID string, role model.Role) {
 	h.broadcastToRoom(roomID, Message{
 		Type:      "ROLE_UPDATE",

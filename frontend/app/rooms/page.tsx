@@ -34,7 +34,7 @@ export default function RoomsPage() {
   useEffect(() => {
     async function loadRooms() {
       try {
-        const res = await fetch("http://localhost:8080/rooms");
+        const res = await fetch("/api/rooms");
         
         // Nếu API trả về code 4xx hoặc 5xx, chủ động nhảy vào catch
         if (!res.ok) {

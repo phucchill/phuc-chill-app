@@ -71,7 +71,7 @@ export default function CreateRoomPage() {
     localStorage.setItem("isHost", "true");
 
     try {
-      const res = await fetch("http://localhost:8080/rooms", {
+      const res = await fetch("/api/rooms", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
