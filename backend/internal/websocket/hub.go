@@ -60,6 +60,15 @@ type Room struct {
 	CloseTimer    *time.Timer
 	KTV           *KTVState
 	Queue         *QueueState
+
+	// CurrentQueueSong lưu metadata (title/artist/thumbnail/songSrc) của
+	// bài đang phát, NẾU bài đó tới từ Danh sách chờ (Next/Prev/duyệt).
+	// nil nếu host chọn bài trực tiếp từ SongPicker qua SYNC_PLAY (không
+	// đi qua hàng chờ) — trường hợp đó Prev sẽ không có gì để lùi về.
+	CurrentQueueSong *QueueSong
+
+	// LastRequestAt chống spam: userID -> thời điểm request bài gần nhất.
+	LastRequestAt map[string]time.Time
 }
 
 func (r *Room) CurrentProgress() float64 {
@@ -111,6 +120,13 @@ type RoomState struct {
 	IsPlaying    bool          `json:"isPlaying"`
 	Progress     float64       `json:"progress"`
 	Participants []Participant `json:"participants"`
+
+	// Metadata bài đang phát — chỉ có giá trị khi bài tới từ hàng chờ
+	// (Next/Prev/QUEUE_APPROVE trực tiếp). Rỗng nếu host chọn qua
+	// SongPicker (SYNC_PLAY thuần) như trước giờ — không đổi hành vi cũ.
+	SongTitle  string `json:"songTitle,omitempty"`
+	SongArtist string `json:"songArtist,omitempty"`
+	SongCover  string `json:"songCover,omitempty"`
 
 	ActiveMicUID string             `json:"activeMicUid"`
 	MicRequests  []model.MicRequest `json:"micRequests"`
@@ -202,13 +218,19 @@ func (h *Hub) handleRegister(client *Client) {
 			Clients:       make(map[*Client]bool),
 			Pending:       make(map[string]*Client),
 			ApprovedUsers: map[string]bool{hostID: true}, // host luôn được duyệt sẵn
-			CurrentSong:   "/music/sao-hang-a.mp3",
-			IsPlaying:     false,
-			Progress:      0,
-			LastUpdated:   time.Now(),
-			CloseTimer:    nil,
-			KTV:           &KTVState{},
-			Queue:         &QueueState{},
+			// Chưa có bài nào được chọn khi phòng vừa tạo — KHÔNG hard-code
+			// về 1 file mp3 cụ thể nữa (file /public/music/sao-hang-a.mp3 đã
+			// bị xóa, toàn bộ nhạc giờ nằm trong /public/Assets/songs).
+			// Host phải tự chọn bài từ SongPicker để bắt đầu phát.
+			CurrentSong:      "",
+			IsPlaying:        false,
+			Progress:         0,
+			LastUpdated:      time.Now(),
+			CloseTimer:       nil,
+			KTV:              &KTVState{},
+			Queue:            &QueueState{},
+			CurrentQueueSong: nil,
+			LastRequestAt:    make(map[string]time.Time),
 		}
 
 		h.Rooms[client.RoomID] = room
@@ -488,6 +510,13 @@ func (h *Hub) endRoom(roomID string, reason string) {
 }
 
 func (h *Hub) sendRoomStateToClient(room *Room, client *Client) {
+	var songTitle, songArtist, songCover string
+	if room.CurrentQueueSong != nil {
+		songTitle = room.CurrentQueueSong.Title
+		songArtist = room.CurrentQueueSong.Artist
+		songCover = room.CurrentQueueSong.Thumbnail
+	}
+
 	state := RoomState{
 		RoomID:       room.ID,
 		RoomType:     room.Type,
@@ -498,6 +527,10 @@ func (h *Hub) sendRoomStateToClient(room *Room, client *Client) {
 		IsPlaying:    room.IsPlaying,
 		Progress:     room.CurrentProgress(),
 		Participants: room.Participants(),
+
+		SongTitle:  songTitle,
+		SongArtist: songArtist,
+		SongCover:  songCover,
 
 		ActiveMicUID: room.KTV.ActiveMicUID,
 		MicRequests:  room.KTV.GetMicRequests(),
@@ -659,6 +692,13 @@ func (h *Hub) broadcastRoomState(roomID string) {
 		return
 	}
 
+	var songTitle, songArtist, songCover string
+	if room.CurrentQueueSong != nil {
+		songTitle = room.CurrentQueueSong.Title
+		songArtist = room.CurrentQueueSong.Artist
+		songCover = room.CurrentQueueSong.Thumbnail
+	}
+
 	state := RoomState{
 		RoomID:       room.ID,
 		RoomType:     room.Type,
@@ -669,6 +709,10 @@ func (h *Hub) broadcastRoomState(roomID string) {
 		IsPlaying:    room.IsPlaying,
 		Progress:     room.CurrentProgress(),
 		Participants: room.Participants(),
+
+		SongTitle:  songTitle,
+		SongArtist: songArtist,
+		SongCover:  songCover,
 
 		ActiveMicUID: room.KTV.ActiveMicUID,
 		MicRequests:  room.KTV.GetMicRequests(),

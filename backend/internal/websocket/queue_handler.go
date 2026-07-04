@@ -1,26 +1,31 @@
 package websocket
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // queueMessageTypes là các message liên quan tới "Danh sách chờ" bài hát
 // của Music Room (khác với SONG_QUEUE_ADD/REMOVE/NEXT của chế độ KTV).
-//
-// Lưu ý: các type host-only ở đây KHÔNG nằm trong map hostOnlyMessages của
-// hub.go, vì handleBroadcast sẽ delegate toàn bộ message khớp IsQueueMessage
-// sang handleQueueMessage TRƯỚC khi chạy tới đoạn check hostOnlyMessages
-// (giống cách KTV đang làm) — nên quyền hạn được kiểm tra ngay bên trong
-// handleQueueMessage.
+// PLAYER_NEXT/PLAYER_PREV cũng nằm ở đây vì chúng thao tác trực tiếp lên
+// cùng QueueState (pop bài kế tiếp / đẩy lịch sử) — tách riêng file khác
+// sẽ phải lock/unlock lặp lại không cần thiết.
 var queueMessageTypes = map[string]bool{
-	"QUEUE_REQUEST":       true, // ai cũng gửi được — server tự quyết định pending/queued dựa vào isHost
-	"QUEUE_APPROVE":       true, // chỉ host
-	"QUEUE_REJECT":        true, // chỉ host
-	"QUEUE_REMOVE":        true, // chỉ host
-	"QUEUE_CLEAR_PENDING": true, // chỉ host
+	"QUEUE_REQUEST":       true,
+	"QUEUE_APPROVE":       true,
+	"QUEUE_REJECT":        true,
+	"QUEUE_REMOVE":        true,
+	"QUEUE_CLEAR_PENDING": true,
+	"PLAYER_NEXT":         true,
+	"PLAYER_PREV":         true,
 }
 
 func IsQueueMessage(t string) bool {
 	return queueMessageTypes[t]
 }
+
+const requestCooldown = 20 * time.Second
 
 type queueSongPayload struct {
 	ID        string  `json:"id"`
@@ -28,32 +33,63 @@ type queueSongPayload struct {
 	Artist    string  `json:"artist"`
 	Thumbnail string  `json:"thumbnail"`
 	Duration  float64 `json:"duration"`
+	SongUrl   string  `json:"songSrc"`
 }
 
 type queueIDPayload struct {
 	ID string `json:"id"`
 }
 
-// handleQueueMessage xử lý toàn bộ message của "Danh sách chờ" Music Room.
-// Được gọi từ handleBroadcast SAU KHI hub đã unlock (đúng pattern delegate
-// của handleKTVMessage), nên hàm này tự lock/unlock h.mu của riêng nó.
+// handleQueueMessage xử lý toàn bộ message của "Danh sách chờ" + điều
+// khiển Next/Prev của Music Room. Được gọi từ handleBroadcast SAU KHI hub
+// đã unlock, nên hàm này tự lock/unlock h.mu của riêng nó.
 func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 	h.mu.Lock()
 
 	if room.Queue == nil {
 		room.Queue = &QueueState{}
 	}
+	if room.LastRequestAt == nil {
+		room.LastRequestAt = make(map[string]time.Time)
+	}
 
 	isHost := room.isHost(msg.SenderID)
 	changed := true
+	broadcastState := true // false cho các case chỉ gửi thông báo riêng, không đổi ROOM_STATE
 
 	switch msg.Type {
 	case "QUEUE_REQUEST":
+		// Chống spam: 20s/lần cho MỖI user (kể cả host), tính từ lần
+		// request gần nhất — không phân biệt request có được duyệt hay bị
+		// từ chối.
+		if last, ok := room.LastRequestAt[msg.SenderID]; ok {
+			elapsed := time.Since(last)
+			if elapsed < requestCooldown {
+				remaining := requestCooldown - elapsed
+				h.sendErrorLocked(room, msg.SenderID, fmt.Sprintf(
+					"Vui lòng đợi %d giây nữa trước khi gửi yêu cầu tiếp theo",
+					int(remaining.Seconds())+1,
+				))
+				changed = false
+				break
+			}
+		}
+
 		var p queueSongPayload
 		if json.Unmarshal(msg.Payload, &p) != nil || p.Title == "" || p.ID == "" {
 			changed = false
 			break
 		}
+
+		// Không cho thêm bài đang phát (so khớp bằng file mp3 thật, không
+		// phải ID request — vì mỗi lần request FE tạo ID ngẫu nhiên mới).
+		if p.SongUrl != "" && p.SongUrl == room.CurrentSong {
+			h.sendErrorLocked(room, msg.SenderID, "Bài này đang được phát rồi")
+			changed = false
+			break
+		}
+
+		room.LastRequestAt[msg.SenderID] = time.Now()
 
 		song := QueueSong{
 			ID:          p.ID,
@@ -61,11 +97,10 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 			Artist:      p.Artist,
 			Thumbnail:   p.Thumbnail,
 			Duration:    p.Duration,
+			SongUrl:     p.SongUrl,
 			RequestedBy: msg.SenderID,
 		}
 
-		// Host tự thêm bài thì vào thẳng "queued", khỏi cần duyệt.
-		// Thành viên khác request thì vào "pending", chờ host duyệt.
 		if isHost {
 			room.Queue.AddQueued(song)
 		} else {
@@ -100,7 +135,17 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 			break
 		}
 
+		// Lấy thông tin bài TRƯỚC khi xóa, để biết gửi thông báo cho ai.
+		song, found := room.Queue.FindByID(p.ID)
 		changed = room.Queue.Reject(p.ID)
+
+		if changed && found && song.RequestedBy != "" && song.RequestedBy != msg.SenderID {
+			h.sendToUserLocked(room, song.RequestedBy, "QUEUE_REJECTED", map[string]string{
+				"id":      song.ID,
+				"title":   song.Title,
+				"message": fmt.Sprintf("Host đã từ chối bài \"%s\" của bạn", song.Title),
+			})
+		}
 
 	case "QUEUE_REMOVE":
 		if !isHost {
@@ -115,7 +160,16 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 			break
 		}
 
+		song, found := room.Queue.FindByID(p.ID)
 		changed = room.Queue.Remove(p.ID)
+
+		if changed && found && song.RequestedBy != "" && song.RequestedBy != msg.SenderID {
+			h.sendToUserLocked(room, song.RequestedBy, "QUEUE_REMOVED", map[string]string{
+				"id":      song.ID,
+				"title":   song.Title,
+				"message": fmt.Sprintf("Host đã xóa bài \"%s\" của bạn khỏi hàng chờ", song.Title),
+			})
+		}
 
 	case "QUEUE_CLEAR_PENDING":
 		if !isHost {
@@ -126,18 +180,67 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 
 		room.Queue.ClearPending()
 
+	case "PLAYER_NEXT":
+		if !isHost {
+			h.sendErrorLocked(room, msg.SenderID, "Chỉ host mới được chuyển bài")
+			changed = false
+			break
+		}
+
+		next, ok := room.Queue.PopNextQueued()
+		if !ok {
+			h.sendErrorLocked(room, msg.SenderID, "Không còn bài nào trong hàng chờ")
+			changed = false
+			break
+		}
+
+		// Bài đang phát (nếu có) được đẩy vào lịch sử để Prev dùng lại.
+		if room.CurrentQueueSong != nil {
+			room.Queue.PushHistory(*room.CurrentQueueSong)
+		}
+
+		room.CurrentSong = next.SongUrl
+		room.CurrentQueueSong = &next
+		room.IsPlaying = true
+		room.Progress = 0
+		room.LastUpdated = time.Now()
+
+	case "PLAYER_PREV":
+		if !isHost {
+			h.sendErrorLocked(room, msg.SenderID, "Chỉ host mới được chuyển bài")
+			changed = false
+			break
+		}
+
+		prev, ok := room.Queue.PopHistory()
+		if !ok {
+			h.sendErrorLocked(room, msg.SenderID, "Không có bài trước đó")
+			changed = false
+			break
+		}
+
+		// Bài đang phát (nếu có) quay lại ĐẦU hàng chờ để có thể Next tới
+		// lại đúng bài đó.
+		if room.CurrentQueueSong != nil {
+			room.Queue.PushFrontQueued(*room.CurrentQueueSong)
+		}
+
+		room.CurrentSong = prev.SongUrl
+		room.CurrentQueueSong = &prev
+		room.IsPlaying = true
+		room.Progress = 0
+		room.LastUpdated = time.Now()
+
 	default:
 		changed = false
+		broadcastState = false
 	}
 
 	h.mu.Unlock()
 
-	if !changed {
+	if !changed || !broadcastState {
 		return
 	}
 
-	// Mọi thay đổi hàng chờ đều broadcast lại ROOM_STATE (đã gồm queueSongs)
-	// cho cả phòng để UI luôn đồng bộ — giống cách JOIN_APPROVE/JOIN_REJECT
-	// đang làm với participants.
 	h.broadcastRoomState(room.ID)
 }

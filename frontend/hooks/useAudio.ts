@@ -19,46 +19,51 @@ export function useAudio(audioRef: RefObject<HTMLAudioElement | null>) {
   };
 
   const syncPlay = async (src: string, progress: number) => {
-  const audio = audioRef.current;
-  if (!audio) return;
+    const audio = audioRef.current;
+    if (!audio) return;
 
-  lastSyncRef.current = {
-    src,
-    progress,
-    syncedAt: Date.now(),
-  };
+    // Chưa có bài nào được chọn (currentSong rỗng, không còn fallback về
+    // /music/sao-hang-a.mp3 nữa) — không set src rỗng lên <audio>, tránh
+    // trình duyệt tự hiểu là "load lại trang hiện tại" và bắn lỗi network.
+    if (!src) return;
 
-  try {
-    if (!isSameSrc(audio.src, src)) {
-      audio.src = src;
-      audio.load();
+    lastSyncRef.current = {
+      src,
+      progress,
+      syncedAt: Date.now(),
+    };
 
-      await new Promise<void>((resolve) => {
-        const handleLoaded = () => {
-          audio.removeEventListener(
+    try {
+      if (!isSameSrc(audio.src, src)) {
+        audio.src = src;
+        audio.load();
+
+        await new Promise<void>((resolve) => {
+          const handleLoaded = () => {
+            audio.removeEventListener(
+              "loadedmetadata",
+              handleLoaded
+            );
+            resolve();
+          };
+
+          audio.addEventListener(
             "loadedmetadata",
             handleLoaded
           );
-          resolve();
-        };
+        });
+      }
 
-        audio.addEventListener(
-          "loadedmetadata",
-          handleLoaded
-        );
-      });
+      audio.currentTime = progress || 0;
+
+      await audio.play();
+
+      setNeedsInteraction(false);
+    } catch (err) {
+      console.warn("[Audio] Autoplay bị chặn:", err);
+      setNeedsInteraction(true);
     }
-
-    audio.currentTime = progress || 0;
-
-    await audio.play();
-
-    setNeedsInteraction(false);
-  } catch (err) {
-    console.warn("[Audio] Autoplay bị chặn:", err);
-    setNeedsInteraction(true);
-  }
-};
+  };
 
   const syncPause = (progress: number) => {
     const audio = audioRef.current;

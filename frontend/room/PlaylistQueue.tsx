@@ -69,7 +69,7 @@ export default function PlaylistQueue({
           display: "flex",
           alignItems: "center",
           gap: 10,
-          background: "rgba(255,255,255,0.02)",
+          background: "rgba(21, 23, 45, 0.02)",
           flexShrink: 0,
         }}
       >
@@ -79,7 +79,7 @@ export default function PlaylistQueue({
             fontSize: 13,
             letterSpacing: "0.15em",
             textTransform: "uppercase",
-            color: "rgba(255,255,255,0.4)",
+            color: "rgba(255, 255, 255, 0.4)",
             whiteSpace: "nowrap",
           }}
         >
@@ -138,6 +138,7 @@ export default function PlaylistQueue({
           minHeight: 0,
           overflowY: "auto",
           display: "flex",
+            background: "#1a192b",
           flexDirection: "column",
         }}
       >

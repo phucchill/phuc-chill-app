@@ -6,13 +6,18 @@ interface MusicPlayerProps {
   audioRef: RefObject<HTMLAudioElement | null>;
   roomId: string;
   isHost: boolean;
-  currentSong: string;
+  currentSong: string;       // đường dẫn file mp3
+  songTitle?: string;        // tên bài (từ musicAPI)
+  songArtist?: string;       // ca sĩ (từ musicAPI)
+  songAvatar?: string;       // ảnh bìa (từ musicAPI)
   isPlaying: boolean;
   needsInteraction: boolean;
   onPlay: () => void;
   onPause: () => void;
   onSeek: () => void;
   onInteract: () => void;
+  onNext?: () => void;
+  onPrev?: () => void;
 }
 
 export default function MusicPlayer({
@@ -20,18 +25,29 @@ export default function MusicPlayer({
   roomId,
   isHost,
   currentSong,
+  songTitle,
+  songArtist,
+  songAvatar,
   isPlaying,
   needsInteraction,
   onPlay,
   onPause,
   onSeek,
   onInteract,
+  onNext,
+  onPrev,
 }: MusicPlayerProps) {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [isDragging, setIsDragging] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
   const progressBarRef = useRef<HTMLDivElement>(null);
+
+  // Reset lỗi ảnh khi bài đổi
+  useEffect(() => {
+    setAvatarError(false);
+  }, [songAvatar]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -73,11 +89,16 @@ export default function MusicPlayer({
     onSeek();
   };
 
-  const songName = currentSong
-    ? currentSong.split("/").pop()?.replace(".mp3", "").replace(/-/g, " ") || "Unknown"
-    : "No song";
+  // Tên hiển thị: ưu tiên songTitle, fallback parse từ đường dẫn
+  const displayTitle =
+    songTitle ||
+    (currentSong
+      ? currentSong.split("/").pop()?.replace(".mp3", "").replace(/-/g, " ") || "Unknown"
+      : "Chưa có bài");
 
   const progressPercent = duration > 0 ? (progress / duration) * 100 : 0;
+
+  const showRealAvatar = songAvatar && !avatarError;
 
   return (
     <div
@@ -124,7 +145,21 @@ export default function MusicPlayer({
             borderRadius: 24,
           }}
         >
-          <div style={{ fontSize: 36 }}>🎵</div>
+          {showRealAvatar && (
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 12,
+                backgroundImage: `url(${songAvatar})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                marginBottom: 4,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+              }}
+            />
+          )}
+          {!showRealAvatar && <div style={{ fontSize: 36 }}>🎵</div>}
           <p
             style={{
               margin: 0,
@@ -136,6 +171,16 @@ export default function MusicPlayer({
           >
             Phòng đang phát nhạc
           </p>
+          {songTitle && (
+            <p style={{
+              margin: "-4px 0 0",
+              fontSize: 13,
+              color: "rgba(167,139,250,0.7)",
+              fontFamily: "'DM Sans', sans-serif",
+            }}>
+              {songTitle}{songArtist ? ` — ${songArtist}` : ""}
+            </p>
+          )}
           <button
             onClick={onInteract}
             style={{
@@ -178,52 +223,68 @@ export default function MusicPlayer({
                 overflow: "hidden",
               }}
             >
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <div
+              {showRealAvatar ? (
+                /* Ảnh bìa thật từ musicAPI */
+                <img
+                  src={songAvatar}
+                  alt={displayTitle}
+                  onError={() => setAvatarError(true)}
                   style={{
-                    position: "absolute",
-                    inset: 0,
-                    background: `
-                      repeating-radial-gradient(circle at center,
-                        rgba(255,255,255,0.04) 0px,
-                        rgba(255,255,255,0) 2px,
-                        rgba(255,255,255,0) 8px,
-                        rgba(255,255,255,0.04) 10px
-                      )
-                    `,
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    display: "block",
                   }}
                 />
+              ) : (
+                /* Fallback vinyl khi chưa có ảnh */
                 <div
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: "50%",
-                    background: "rgba(0,0,0,0.6)",
-                    zIndex: 1,
-                    border: "2px solid rgba(255,255,255,0.1)",
+                    width: "100%",
+                    height: "100%",
+                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
-                />
-                <svg
-                  style={{ position: "absolute", zIndex: 2 }}
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="rgba(167,139,250,0.8)"
                 >
-                  <path d="M9 18V5l12-2v13" />
-                  <circle cx="6" cy="18" r="3" />
-                  <circle cx="18" cy="16" r="3" />
-                </svg>
-              </div>
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background: `
+                        repeating-radial-gradient(circle at center,
+                          rgba(255,255,255,0.04) 0px,
+                          rgba(255,255,255,0) 2px,
+                          rgba(255,255,255,0) 8px,
+                          rgba(255,255,255,0.04) 10px
+                        )
+                      `,
+                    }}
+                  />
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      background: "rgba(0,0,0,0.6)",
+                      zIndex: 1,
+                      border: "2px solid rgba(255,255,255,0.1)",
+                    }}
+                  />
+                  <svg
+                    style={{ position: "absolute", zIndex: 2 }}
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="rgba(167,139,250,0.8)"
+                  >
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
+                </div>
+              )}
             </div>
 
             {isPlaying && (
@@ -259,16 +320,27 @@ export default function MusicPlayer({
               <h2
                 style={{
                   fontFamily: "'Cormorant Garamond', serif",
-                  fontSize: 26,
+                  fontSize: 24,
                   fontWeight: 700,
                   color: "white",
-                  margin: 0,
+                  margin: "0 0 4px",
                   lineHeight: 1.1,
                   textTransform: "capitalize",
                 }}
               >
-                {songName}
+                {displayTitle}
               </h2>
+              {/* Ca sĩ — chỉ hiện khi có */}
+              {songArtist && (
+                <p style={{
+                  margin: 0,
+                  fontSize: 13,
+                  color: "rgba(255,255,255,0.4)",
+                  fontFamily: "'DM Sans', sans-serif",
+                }}>
+                  {songArtist}
+                </p>
+              )}
             </div>
 
             {/* Progress bar */}
@@ -327,6 +399,7 @@ export default function MusicPlayer({
             {/* Controls */}
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
               <button
+                onClick={onPrev}
                 disabled={!isHost}
                 style={{
                   background: "none",
@@ -383,6 +456,7 @@ export default function MusicPlayer({
               </button>
 
               <button
+                onClick={onNext}
                 disabled={!isHost}
                 style={{
                   background: "none",
@@ -402,7 +476,8 @@ export default function MusicPlayer({
 
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="rgba(255,255,255,0.4)">
-                  <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" stroke="rgba(255,255,255,0.4)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+                  <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"
+                    stroke="rgba(255,255,255,0.4)" strokeWidth="2" fill="none" strokeLinecap="round" />
                 </svg>
                 <input
                   type="range"

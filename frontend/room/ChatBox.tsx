@@ -246,7 +246,7 @@ export default function ChatBox({
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        height: 520, 
+        height: 780, 
         backdropFilter: "blur(20px)",
       }}
     >

@@ -28,6 +28,8 @@ var allowedTypes = map[string]bool{
 	// Music Room queue (khác với KTV "SONG_QUEUE_*" ở dưới)
 	"QUEUE_REQUEST": true, "QUEUE_APPROVE": true, "QUEUE_REJECT": true,
 	"QUEUE_REMOVE": true, "QUEUE_CLEAR_PENDING": true,
+	// Music Room player — Next/Prev
+	"PLAYER_NEXT": true, "PLAYER_PREV": true,
 	// KTV queue
 	"SONG_QUEUE_ADD": true, "SONG_QUEUE_REMOVE": true, "SONG_QUEUE_NEXT": true,
 	// KTV mic

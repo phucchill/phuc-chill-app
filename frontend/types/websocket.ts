@@ -23,6 +23,7 @@ export interface QueueSong {
   status: "pending" | "queued";
   requestedBy?: string;
   requestedByName?: string;
+  songSrc?: string; // khớp với backend, dùng để chặn request trùng bài đang phát
 }
 
 // ─── Room state ───────────────────────────────────────────────────────────────
@@ -108,6 +109,12 @@ export type WSMessageType =
   | "QUEUE_REMOVE"        // xóa bài đã queued
   | "QUEUE_CLEAR_PENDING" // host xóa hết bài đang pending
   | "QUEUE_UPDATE"        // server broadcast danh sách mới
+  | "QUEUE_REJECTED"      // thông báo riêng cho user bị từ chối bài
+  | "QUEUE_REMOVED"       // thông báo riêng cho user bị xóa bài
+
+  // Music Room player
+  | "PLAYER_NEXT"
+  | "PLAYER_PREV"
 
   // KTV — queue
   | "SONG_QUEUE_ADD"
