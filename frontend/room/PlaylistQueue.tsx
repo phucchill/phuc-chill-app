@@ -49,72 +49,20 @@ export default function PlaylistQueue({
   };
 
   return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 20,
-        overflow: "hidden",
-        backdropFilter: "blur(20px)",
-        height: 380,
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="flex h-[380px] flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#111113]">
       {/* Header (cố định, không scroll) */}
-      <div
-        style={{
-          padding: "16px 20px",
-          borderBottom: "1px solid rgba(255,255,255,0.05)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          background: "rgba(21, 23, 45, 0.02)",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontFamily: "'Cormorant Garamond', serif",
-            fontSize: 13,
-            letterSpacing: "0.15em",
-            textTransform: "uppercase",
-            color: "rgba(255, 255, 255, 0.4)",
-            whiteSpace: "nowrap",
-          }}
-        >
+      <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-white/5 px-5 py-4">
+        <span className="whitespace-nowrap font-serif text-[13px] uppercase tracking-[0.15em] text-white/40">
           Danh sách chờ
         </span>
 
         {songs.length > 0 && (
-          <span
-            style={{
-              padding: "2px 8px",
-              borderRadius: 20,
-              background:
-                "linear-gradient(135deg, rgba(124,58,237,0.3), rgba(236,72,153,0.2))",
-              border: "1px solid rgba(167,139,250,0.3)",
-              fontSize: 11,
-              color: "#a78bfa",
-              fontFamily: "'DM Sans', sans-serif",
-            }}
-          >
+          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-sans text-[11px] text-white/60">
             {songs.length}
           </span>
         )}
 
-        <span
-          style={{
-            marginLeft: "auto",
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            fontSize: 11,
-            color: "rgba(255,255,255,0.25)",
-            fontFamily: "'DM Sans', sans-serif",
-            whiteSpace: "nowrap",
-          }}
-        >
+        <span className="ml-auto flex items-center gap-[5px] whitespace-nowrap font-sans text-[11px] text-white/25">
           <svg
             width="11"
             height="11"
@@ -131,30 +79,9 @@ export default function PlaylistQueue({
       </div>
 
       {/* Danh sách — vùng duy nhất được scroll, khung ngoài luôn giữ nguyên kích thước */}
-      <div
-        className="queueScroll"
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          display: "flex",
-            background: "#1a192b",
-          flexDirection: "column",
-        }}
-      >
+      <div className="queueScroll flex min-h-0 flex-1 flex-col overflow-y-auto bg-black/20">
         {songs.length === 0 ? (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              textAlign: "center",
-              color: "rgba(255,255,255,0.2)",
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: 13,
-            }}
-          >
+          <div className="flex flex-1 items-center justify-center text-center font-sans text-[13px] text-white/20">
             Chưa có bài hát nào trong danh sách chờ
           </div>
         ) : (
@@ -167,146 +94,60 @@ export default function PlaylistQueue({
                 key={song.id}
                 onMouseEnter={() => setHoveredId(song.id)}
                 onMouseLeave={() => setHoveredId(null)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "10px 20px",
-                  borderBottom: "1px solid rgba(255,255,255,0.03)",
-                  flexShrink: 0,
-                }}
+                className="flex flex-shrink-0 items-center gap-3 border-b border-white/[0.03] px-5 py-2.5"
               >
                 {/* Tay kéo sắp xếp (chỉ mang tính trực quan) */}
                 <span
-                  style={{
-                    color: "rgba(255,255,255,0.15)",
-                    fontSize: 14,
-                    cursor: isHost ? "grab" : "default",
-                    flexShrink: 0,
-                  }}
+                  className={`flex-shrink-0 text-sm text-white/15 ${
+                    isHost ? "cursor-grab" : "cursor-default"
+                  }`}
                 >
                   ⠿
                 </span>
 
                 {/* Số thứ tự */}
-                <span
-                  style={{
-                    width: 16,
-                    fontSize: 12,
-                    color: "rgba(255,255,255,0.25)",
-                    fontFamily: "'DM Sans', sans-serif",
-                    flexShrink: 0,
-                  }}
-                >
+                <span className="w-4 flex-shrink-0 font-sans text-xs text-white/25">
                   {index + 1}
                 </span>
 
                 {/* Ảnh bìa */}
                 <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 8,
-                    background: song.thumbnail
-                      ? `url(${song.thumbnail}) center/cover`
-                      : "linear-gradient(135deg, #312e81, #4c1d95)",
-                    flexShrink: 0,
-                  }}
+                  className="h-9 w-9 flex-shrink-0 rounded-lg bg-[#1a1a1c] bg-cover bg-center"
+                  style={song.thumbnail ? { backgroundImage: `url(${song.thumbnail})` } : undefined}
                 />
 
                 {/* Tên bài / ca sĩ */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: "rgba(255,255,255,0.9)",
-                      fontFamily: "'DM Sans', sans-serif",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 truncate font-sans text-[13px] font-medium text-white/90">
                     {song.title}
                   </p>
                   {song.artist && (
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: 11,
-                        color: "rgba(255,255,255,0.35)",
-                        fontFamily: "'DM Sans', sans-serif",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
+                    <p className="m-0 truncate font-sans text-[11px] text-white/35">
                       {song.artist}
                     </p>
                   )}
                 </div>
 
                 {/* Thời lượng */}
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: "rgba(255,255,255,0.3)",
-                    fontFamily: "'DM Sans', sans-serif",
-                    flexShrink: 0,
-                  }}
-                >
+                <span className="flex-shrink-0 font-sans text-[11px] text-white/30">
                   {formatDuration(song.duration)}
                 </span>
 
                 {/* Hành động */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flexShrink: 0,
-                    minWidth: 50,
-                    justifyContent: "flex-end",
-                  }}
-                >
+                <div className="flex min-w-[50px] flex-shrink-0 items-center justify-end gap-1.5">
                   {isPending && isHost && (
                     <>
                       <button
                         onClick={() => onApprove?.(song.id)}
                         title="Duyệt"
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: 6,
-                          background: "rgba(52,211,153,0.15)",
-                          border: "1px solid rgba(52,211,153,0.3)",
-                          color: "#34d399",
-                          fontSize: 12,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-white/10 bg-white/5 text-xs text-white/70 hover:bg-white/10"
                       >
                         ✔
                       </button>
                       <button
                         onClick={() => onReject?.(song.id)}
                         title="Từ chối"
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: 6,
-                          background: "rgba(248,113,113,0.1)",
-                          border: "1px solid rgba(248,113,113,0.2)",
-                          color: "#f87171",
-                          fontSize: 12,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-white/5 bg-transparent text-xs text-white/40 hover:bg-white/5"
                       >
                         ✖
                       </button>
@@ -314,16 +155,7 @@ export default function PlaylistQueue({
                   )}
 
                   {isPending && !isHost && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        color: "rgba(167,139,250,0.6)",
-                        fontFamily: "'DM Sans', sans-serif",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      Đang chờ
-                    </span>
+                    <span className="font-sans text-[10px] italic text-white/40">Đang chờ</span>
                   )}
 
                   {!isPending &&
@@ -331,19 +163,7 @@ export default function PlaylistQueue({
                       <button
                         onClick={() => onRemove?.(song.id)}
                         title="Xóa khỏi danh sách chờ"
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: 6,
-                          background: "rgba(248,113,113,0.1)",
-                          border: "1px solid rgba(248,113,113,0.2)",
-                          color: "#f87171",
-                          fontSize: 12,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-white/5 bg-transparent text-xs text-white/40 hover:bg-white/5"
                       >
                         ✖
                       </button>
@@ -371,18 +191,7 @@ export default function PlaylistQueue({
       {isHost && pendingCount > 0 && (
         <button
           onClick={() => onClearPending?.()}
-          style={{
-            margin: 12,
-            padding: "10px 0",
-            borderRadius: 10,
-            background: "rgba(248,113,113,0.08)",
-            border: "1px solid rgba(248,113,113,0.15)",
-            color: "#f87171",
-            fontSize: 12,
-            fontFamily: "'DM Sans', sans-serif",
-            cursor: "pointer",
-            flexShrink: 0,
-          }}
+          className="m-3 flex-shrink-0 cursor-pointer rounded-[10px] border border-white/5 bg-white/[0.03] py-2.5 font-sans text-xs text-white/50 hover:bg-white/5"
         >
           🗑 Xóa hết yêu cầu chờ duyệt
         </button>
@@ -396,12 +205,12 @@ export default function PlaylistQueue({
           background: transparent;
         }
         .queueScroll::-webkit-scrollbar-thumb {
-          background: linear-gradient(180deg, rgba(124,58,237,0.7), rgba(236,72,153,0.7));
+          background: rgba(255,255,255,0.15);
           border-radius: 999px;
         }
         .queueScroll {
           scrollbar-width: thin;
-          scrollbar-color: rgba(167,139,250,0.65) transparent;
+          scrollbar-color: rgba(255,255,255,0.15) transparent;
         }
       `}</style>
     </div>

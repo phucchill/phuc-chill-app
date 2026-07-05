@@ -3,7 +3,7 @@
 import { RefObject, KeyboardEvent, useState } from "react";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import { ChatMessage } from "../types/websocket";
-import styles from "./ChatBox.module.css";  
+import styles from "./ChatBox.module.css";
 
 interface ExtendedChatMessage extends ChatMessage {
   avatarUrl?: string;
@@ -75,13 +75,7 @@ export default function ChatBox({
         <img
           src={stickerUrl}
           alt="sticker"
-          style={{
-            width: 120,
-            height: 120,
-            borderRadius: 12,
-            objectFit: "cover",
-            display: "block",
-          }}
+          className="block h-[120px] w-[120px] rounded-xl object-cover"
         />
       );
     }
@@ -92,27 +86,12 @@ export default function ChatBox({
   const renderBody = () => {
     if (isLoading) {
       return (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            opacity: 0.45,
-          }}
-        >
+        <div className="flex flex-1 items-center justify-center gap-2 opacity-45">
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: "white",
-                display: "inline-block",
-                animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
-              }}
+              className="inline-block h-1.5 w-1.5 rounded-full bg-white"
+              style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
             />
           ))}
         </div>
@@ -121,25 +100,8 @@ export default function ChatBox({
 
     if (messages.length === 0) {
       return (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: 0.3,
-          }}
-        >
-          <p
-            style={{
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: 13,
-              color: "white",
-              margin: 0,
-            }}
-          >
-            Chưa có tin nhắn
-          </p>
+        <div className="flex flex-1 items-center justify-center opacity-30">
+          <p className="m-0 font-sans text-[13px] text-white">Chưa có tin nhắn</p>
         </div>
       );
     }
@@ -151,83 +113,31 @@ export default function ChatBox({
       return (
         <div
           key={msg.id ?? msg._id ?? i}
-          style={{
-            width: "100%",
-            display: "flex",
-            // row-reverse để đẩy tin nhắn của bạn sang phải, row giữ tin nhắn người khác bên trái
-            flexDirection: msg.isMine ? "row-reverse" : "row",
-            alignItems: "flex-start",
-            gap: 10,
-          }}
+          className={`flex w-full items-start gap-2.5 ${msg.isMine ? "flex-row-reverse" : "flex-row"}`}
         >
-          {/* Giữ nguyên thẻ img avatar tròn tròn ban đầu của bạn */}
           <img
-            src={msg.avatarUrl || "https://i.pravatar.cc/100"} 
+            src={msg.avatarUrl || "https://i.pravatar.cc/100"}
             alt=""
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: "50%",
-              objectFit: "cover",
-              flexShrink: 0,
-              background: "#444",
-            }}
+            className="h-[38px] w-[38px] flex-shrink-0 rounded-full bg-[#222] object-cover"
           />
 
-          {/* Vùng văn bản nội dung */}
           <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              // flex-end để căn tên và khung chat sang phải nếu là tin nhắn của bạn
-              alignItems: msg.isMine ? "flex-end" : "flex-start",
-              maxWidth: "80%",
-            }}
+            className={`flex max-w-[80%] flex-col ${msg.isMine ? "items-end" : "items-start"}`}
           >
-            {/* Tên người gửi - Chữ trắng, đậm, cỡ chữ 15px như mẫu */}
-            <div
-              style={{
-                fontSize: 14,
-                fontWeight: 700,
-                color: "#ffffff",
-                marginBottom: 4,
-                fontFamily: "'DM Sans', sans-serif",
-              }}
-            >
-              {userName}
-            </div>
+            <div className="mb-1 font-sans text-sm font-bold text-white">{userName}</div>
 
-            {/* Khối khung hội thoại (Bubble chat xám đồng bộ) */}
             <div
-              style={{
-                padding: isSticker ? 4 : "10px 14px",
-                borderRadius: 14,
-                background: isSticker
-                  ? "transparent"
-                  : "rgba(60, 60, 60, 0.85)", 
-                border: isSticker
-                  ? "none"
-                  : "1px solid rgba(255,255,255,0.05)",
-                color: "#ffffff",
-                fontSize: 14,
-                lineHeight: 1.5,
-                fontFamily: "'DM Sans', sans-serif",
-                wordBreak: "break-word",
-              }}
+              className={`font-sans text-sm leading-relaxed text-white break-words ${
+                isSticker
+                  ? "rounded-xl bg-transparent p-1"
+                  : "rounded-xl border border-white/5 bg-white/[0.06] px-3.5 py-2.5"
+              }`}
             >
               {renderMessageContent(msg.content)}
             </div>
 
-            {/* Thời gian gửi tin nhắn */}
             {(msg.timestamp || msg.createdAt) && (
-              <span
-                style={{
-                  marginTop: 4,
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.3)",
-                  fontFamily: "'DM Sans', sans-serif",
-                }}
-              >
+              <span className="mt-1 font-sans text-[11px] text-white/30">
                 {formatTime(msg.timestamp, msg.createdAt)}
               </span>
             )}
@@ -238,95 +148,31 @@ export default function ChatBox({
   };
 
   return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 20,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        height: 780, 
-        backdropFilter: "blur(20px)",
-      }}
-    >
+    <div className="flex h-[780px] flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#111113]">
       {/* Header */}
-      <div
-        style={{
-          padding: "16px 24px",
-          borderBottom: "1px solid rgba(255,255,255,0.05)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          background: "rgba(255,255,255,0.02)",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontFamily: "'Cormorant Garamond', serif",
-            fontSize: 13,
-            letterSpacing: "0.15em",
-            textTransform: "uppercase",
-            color: "rgba(255,255,255,0.4)",
-          }}
-        >
+      <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-white/5 px-6 py-4">
+        <span className="font-serif text-[13px] uppercase tracking-[0.15em] text-white/40">
           Tin nhắn
         </span>
 
-        <span
-          style={{
-            marginLeft: "auto",
-            fontSize: 11,
-            color: "rgba(255,255,255,0.22)",
-            fontFamily: "'DM Sans', sans-serif",
-          }}
-        >
+        <span className="ml-auto font-sans text-[11px] text-white/25">
           {isLoading ? "..." : `${messages.length} tin`}
         </span>
       </div>
 
       {/* Vùng cuộn tin nhắn */}
       <div
-        className={styles.chatScroll} 
-        style={{
-          flex: 1,          
-          minHeight: 0,     
-          overflowY: "auto",
-          overflowX: "hidden",
-          padding: "16px 18px 16px 20px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-          scrollBehavior: "smooth",
-        }}
+        className={`${styles.chatScroll} flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden px-[18px] py-4 pl-5`}
+        style={{ scrollBehavior: "smooth" }}
       >
         {renderBody()}
         <div ref={chatEndRef} />
       </div>
 
       {/* Thanh công cụ nhập liệu */}
-      <div
-        style={{
-          position: "relative",
-          padding: "12px 16px",
-          borderTop: "1px solid rgba(255,255,255,0.05)",
-          display: "flex",
-          gap: 10,
-          alignItems: "center",
-          background: "rgba(0,0,0,0.22)",
-          flexShrink: 0,
-        }}
-      >
+      <div className="relative flex flex-shrink-0 items-center gap-2.5 border-t border-white/5 bg-black/40 px-4 py-3">
         {showEmoji && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 62,
-              left: 12,
-              zIndex: 999,
-            }}
-          >
+          <div className="absolute bottom-[62px] left-3 z-[999]">
             <EmojiPicker
               theme={Theme.DARK}
               onEmojiClick={(emojiData) => {
@@ -338,26 +184,8 @@ export default function ChatBox({
 
         {showSticker && (
           <div
-            className="sticker-scroll"
-            style={{
-              position: "absolute",
-              bottom: 62,
-              left: 65,
-              width: 320,
-              maxHeight: 320,
-              overflowY: "auto",
-              scrollbarWidth: "thin",
-              scrollbarColor: "rgba(167,139,250,0.6) transparent",
-              padding: 12,
-              borderRadius: 16,
-              background: "rgba(20,20,30,0.96)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              display: "grid",
-              gridTemplateColumns: "repeat(3,1fr)",
-              gap: 10,
-              zIndex: 999,
-              boxShadow: "0 12px 35px rgba(0,0,0,0.35)",
-            }}
+            className="sticker-scroll absolute bottom-[62px] left-[65px] z-[999] grid max-h-80 w-80 grid-cols-3 gap-2.5 overflow-y-auto rounded-2xl border border-white/10 bg-[#0c0c0e] p-3"
+            style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.2) transparent" }}
           >
             {stickers.map((sticker) => (
               <button
@@ -368,23 +196,12 @@ export default function ChatBox({
                   setShowSticker(false);
                   setShowEmoji(false);
                 }}
-                style={{
-                  border: "none",
-                  background: "rgba(255,255,255,0.06)",
-                  borderRadius: 12,
-                  padding: 6,
-                  cursor: "pointer",
-                }}
+                className="cursor-pointer rounded-xl border-none bg-white/5 p-1.5 hover:bg-white/10"
               >
                 <img
                   src={sticker}
                   alt=""
-                  style={{
-                    width: "100%",
-                    height: 70,
-                    objectFit: "cover",
-                    borderRadius: 8,
-                  }}
+                  className="h-[70px] w-full rounded-lg object-cover"
                 />
               </button>
             ))}
@@ -397,16 +214,7 @@ export default function ChatBox({
             setShowEmoji(!showEmoji);
             setShowSticker(false);
           }}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 12,
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            cursor: "pointer",
-            color: "white",
-            fontSize: 20,
-          }}
+          className="h-10 w-10 cursor-pointer rounded-xl border border-white/5 bg-white/5 text-xl text-white hover:bg-white/10"
         >
           😊
         </button>
@@ -417,16 +225,7 @@ export default function ChatBox({
             setShowSticker(!showSticker);
             setShowEmoji(false);
           }}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 12,
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            cursor: "pointer",
-            color: "white",
-            fontSize: 18,
-          }}
+          className="h-10 w-10 cursor-pointer rounded-xl border border-white/5 bg-white/5 text-lg text-white hover:bg-white/10"
         >
           🖼️
         </button>
@@ -437,18 +236,7 @@ export default function ChatBox({
           onChange={(e) => setChatText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Nhắn gì đó..."
-          style={{
-            flex: 1,
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 12,
-            padding: "10px 14px",
-            color: "white",
-            fontSize: 13,
-            fontFamily: "'DM Sans', sans-serif",
-            outline: "none",
-            minWidth: 0,
-          }}
+          className="min-w-0 flex-1 rounded-xl border border-white/5 bg-white/5 px-3.5 py-2.5 font-sans text-[13px] text-white outline-none placeholder:text-white/30"
         />
 
         <button
@@ -458,23 +246,11 @@ export default function ChatBox({
             setShowSticker(false);
           }}
           disabled={!chatText.trim()}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 12,
-            background: chatText.trim()
-              ? "linear-gradient(135deg, #7c3aed, #ec4899)"
-              : "rgba(255,255,255,0.05)",
-            border: "none",
-            cursor: chatText.trim() ? "pointer" : "not-allowed",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-            color: "white",
-            opacity: chatText.trim() ? 1 : 0.45,
-            transition: "0.2s ease",
-          }}
+          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border-none text-white transition-opacity ${
+            chatText.trim()
+              ? "cursor-pointer bg-white/15 opacity-100 hover:bg-white/25"
+              : "cursor-not-allowed bg-white/5 opacity-45"
+          }`}
         >
           ➤
         </button>

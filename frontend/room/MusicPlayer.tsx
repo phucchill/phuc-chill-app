@@ -101,183 +101,61 @@ export default function MusicPlayer({
   const showRealAvatar = songAvatar && !avatarError;
 
   return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 24,
-        overflow: "hidden",
-        backdropFilter: "blur(20px)",
-        position: "relative",
-      }}
-    >
-      {/* Ambient glow */}
-      <div
-        style={{
-          position: "absolute",
-          top: -80,
-          left: "50%",
-          transform: "translateX(-50%)",
-          width: 400,
-          height: 200,
-          background: isPlaying
-            ? "radial-gradient(ellipse, rgba(124,58,237,0.15) 0%, transparent 70%)"
-            : "radial-gradient(ellipse, rgba(124,58,237,0.05) 0%, transparent 70%)",
-          transition: "all 1s ease",
-          pointerEvents: "none",
-        }}
-      />
-
+    <div className="relative overflow-hidden rounded-3xl bg-[#0c0c0e] border border-white/10">
       {/* Banner autoplay bị block */}
       {needsInteraction && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 10,
-            background: "rgba(8,4,18,0.85)",
-            backdropFilter: "blur(8px)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-            borderRadius: 24,
-          }}
-        >
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-3xl bg-black/90">
           {showRealAvatar && (
             <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 12,
-                backgroundImage: `url(${songAvatar})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                marginBottom: 4,
-                boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-              }}
+              className="mb-1 h-14 w-14 rounded-xl bg-cover bg-center"
+              style={{ backgroundImage: `url(${songAvatar})` }}
             />
           )}
-          {!showRealAvatar && <div style={{ fontSize: 36 }}>🎵</div>}
-          <p
-            style={{
-              margin: 0,
-              fontSize: 15,
-              color: "rgba(255,255,255,0.8)",
-              fontFamily: "'DM Sans', sans-serif",
-              textAlign: "center",
-            }}
-          >
+          {!showRealAvatar && <div className="text-4xl">🎵</div>}
+          <p className="m-0 text-center text-[15px] text-white/80 font-sans">
             Phòng đang phát nhạc
           </p>
           {songTitle && (
-            <p style={{
-              margin: "-4px 0 0",
-              fontSize: 13,
-              color: "rgba(167,139,250,0.7)",
-              fontFamily: "'DM Sans', sans-serif",
-            }}>
-              {songTitle}{songArtist ? ` — ${songArtist}` : ""}
+            <p className="-mt-1 text-[13px] text-white/50 font-sans">
+              {songTitle}
+              {songArtist ? ` — ${songArtist}` : ""}
             </p>
           )}
           <button
             onClick={onInteract}
-            style={{
-              marginTop: 4,
-              padding: "12px 28px",
-              borderRadius: 50,
-              border: "none",
-              background: "linear-gradient(135deg, #7c3aed, #ec4899)",
-              color: "white",
-              fontSize: 14,
-              fontFamily: "'DM Sans', sans-serif",
-              fontWeight: 500,
-              cursor: "pointer",
-              boxShadow: "0 8px 24px rgba(124,58,237,0.4)",
-            }}
+            className="mt-1 rounded-full bg-[#ff2d55] px-7 py-3 text-[14px] font-medium text-white font-sans cursor-pointer"
           >
             Bấm để nghe cùng
           </button>
         </div>
       )}
 
-      <div style={{ padding: "32px 36px", position: "relative" }}>
-        <div style={{ display: "flex", gap: 32, alignItems: "center" }}>
+      <div className="relative px-9 py-8">
+        <div className="flex items-center gap-8">
           {/* Album Art */}
-          <div style={{ position: "relative", flexShrink: 0 }}>
+          <div className="relative flex-shrink-0">
             <div
-              style={{
-                width: 140,
-                height: 140,
-                borderRadius: 20,
-                background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: isPlaying
-                  ? "0 20px 60px rgba(124,58,237,0.4), 0 0 0 1px rgba(167,139,250,0.1)"
-                  : "0 10px 40px rgba(0,0,0,0.5)",
-                transition: "box-shadow 0.5s ease",
-                animation: isPlaying ? "spin-slow 20s linear infinite" : "none",
-                overflow: "hidden",
-              }}
+              className={`h-[140px] w-[140px] overflow-hidden rounded-2xl bg-[#1a1a1c] flex items-center justify-center ${
+                isPlaying ? "animate-[spin-slow_20s_linear_infinite]" : ""
+              }`}
             >
               {showRealAvatar ? (
-                /* Ảnh bìa thật từ musicAPI */
                 <img
                   src={songAvatar}
                   alt={displayTitle}
                   onError={() => setAvatarError(true)}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                    display: "block",
-                  }}
+                  className="block h-full w-full object-cover"
                 />
               ) : (
-                /* Fallback vinyl khi chưa có ảnh */
-                <div
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    position: "relative",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      background: `
-                        repeating-radial-gradient(circle at center,
-                          rgba(255,255,255,0.04) 0px,
-                          rgba(255,255,255,0) 2px,
-                          rgba(255,255,255,0) 8px,
-                          rgba(255,255,255,0.04) 10px
-                        )
-                      `,
-                    }}
-                  />
-                  <div
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: "50%",
-                      background: "rgba(0,0,0,0.6)",
-                      zIndex: 1,
-                      border: "2px solid rgba(255,255,255,0.1)",
-                    }}
-                  />
+                <div className="relative flex h-full w-full items-center justify-center">
+                  <div className="absolute inset-0 [background:repeating-radial-gradient(circle_at_center,rgba(255,255,255,0.04)_0px,rgba(255,255,255,0)_2px,rgba(255,255,255,0)_8px,rgba(255,255,255,0.04)_10px)]" />
+                  <div className="z-[1] h-8 w-8 rounded-full border-2 border-white/10 bg-black/60" />
                   <svg
-                    style={{ position: "absolute", zIndex: 2 }}
+                    className="absolute z-[2]"
                     width="20"
                     height="20"
                     viewBox="0 0 24 24"
-                    fill="rgba(167,139,250,0.8)"
+                    fill="rgba(255,255,255,0.35)"
                   >
                     <path d="M9 18V5l12-2v13" />
                     <circle cx="6" cy="18" r="3" />
@@ -286,60 +164,19 @@ export default function MusicPlayer({
                 </div>
               )}
             </div>
-
-            {isPlaying && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: -4,
-                  borderRadius: 24,
-                  border: "2px solid transparent",
-                  borderTopColor: "rgba(167,139,250,0.6)",
-                  borderRightColor: "rgba(236,72,153,0.4)",
-                  animation: "border-spin 2s linear infinite",
-                }}
-              />
-            )}
           </div>
 
           {/* Info & Controls */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="flex flex-1 flex-col gap-4">
             <div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "rgba(167,139,250,0.7)",
-                  fontFamily: "'DM Sans', sans-serif",
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  marginBottom: 6,
-                }}
-              >
+              <div className="mb-1.5 text-[11px] uppercase tracking-[0.12em] text-white/40 font-sans">
                 {isPlaying ? "▶ Đang phát" : "⏸ Đã dừng"} · Phòng {roomId}
               </div>
-              <h2
-                style={{
-                  fontFamily: "'Cormorant Garamond', serif",
-                  fontSize: 24,
-                  fontWeight: 700,
-                  color: "white",
-                  margin: "0 0 4px",
-                  lineHeight: 1.1,
-                  textTransform: "capitalize",
-                }}
-              >
+              <h2 className="m-0 mb-1 font-serif text-2xl font-bold capitalize leading-[1.1] text-white">
                 {displayTitle}
               </h2>
-              {/* Ca sĩ — chỉ hiện khi có */}
               {songArtist && (
-                <p style={{
-                  margin: 0,
-                  fontSize: 13,
-                  color: "rgba(255,255,255,0.4)",
-                  fontFamily: "'DM Sans', sans-serif",
-                }}>
-                  {songArtist}
-                </p>
+                <p className="m-0 text-[13px] text-white/40 font-sans">{songArtist}</p>
               )}
             </div>
 
@@ -348,69 +185,34 @@ export default function MusicPlayer({
               <div
                 ref={progressBarRef}
                 onClick={handleProgressClick}
-                style={{
-                  height: 4,
-                  background: "rgba(255,255,255,0.08)",
-                  borderRadius: 2,
-                  cursor: isHost ? "pointer" : "default",
-                  position: "relative",
-                  marginBottom: 8,
-                }}
+                className={`relative mb-2 h-1 rounded-full bg-white/10 ${
+                  isHost ? "cursor-pointer" : "cursor-default"
+                }`}
               >
                 <div
+                  className="relative h-full rounded-full bg-[#ff2d55] shadow-[0_0_20px_rgba(255,45,85,0.5)]"
                   style={{
-                    height: "100%",
                     width: `${progressPercent}%`,
-                    background: "linear-gradient(90deg, #7c3aed, #ec4899)",
-                    borderRadius: 2,
                     transition: isDragging ? "none" : "width 0.2s linear",
-                    position: "relative",
                   }}
                 >
-                  <div
-                    style={{
-                      position: "absolute",
-                      right: -5,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      width: 10,
-                      height: 10,
-                      borderRadius: "50%",
-                      background: "white",
-                      boxShadow: "0 0 8px rgba(167,139,250,0.8)",
-                    }}
-                  />
+                  <div className="absolute right-[-5px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[#ff2d55] shadow-[0_0_20px_rgba(255,45,85,0.5)]" />
                 </div>
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.3)",
-                }}
-              >
+              <div className="flex justify-between font-sans text-[11px] text-white/30">
                 <span>{formatTime(progress)}</span>
                 <span>{formatTime(duration)}</span>
               </div>
             </div>
 
             {/* Controls */}
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div className="flex items-center gap-4">
               <button
                 onClick={onPrev}
                 disabled={!isHost}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: isHost ? "pointer" : "not-allowed",
-                  opacity: isHost ? 0.6 : 0.2,
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  transition: "opacity 0.2s",
-                }}
+                className={`flex items-center border-none bg-transparent p-0 transition-opacity ${
+                  isHost ? "cursor-pointer opacity-60 hover:opacity-100" : "cursor-not-allowed opacity-20"
+                }`}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
                   <path d="M19 20L9 12l10-8v16zM5 4h2v16H5z" />
@@ -420,28 +222,11 @@ export default function MusicPlayer({
               <button
                 onClick={isPlaying ? onPause : onPlay}
                 disabled={!isHost}
-                style={{
-                  width: 52,
-                  height: 52,
-                  borderRadius: "50%",
-                  background: isHost
-                    ? "linear-gradient(135deg, #7c3aed, #ec4899)"
-                    : "rgba(255,255,255,0.1)",
-                  border: "none",
-                  cursor: isHost ? "pointer" : "not-allowed",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  boxShadow: isHost ? "0 8px 24px rgba(124,58,237,0.4)" : "none",
-                  transition: "all 0.2s ease",
-                  transform: "scale(1)",
-                }}
-                onMouseEnter={(e) => {
-                  if (isHost) e.currentTarget.style.transform = "scale(1.08)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "scale(1)";
-                }}
+                className={`flex h-[52px] w-[52px] items-center justify-center rounded-full border-none transition-transform hover:scale-[1.08] ${
+                  isHost
+                    ? "cursor-pointer bg-[#ff2d55] shadow-[0_0_20px_rgba(255,45,85,0.5)]"
+                    : "cursor-not-allowed bg-white/10"
+                }`}
               >
                 {isPlaying ? (
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
@@ -449,7 +234,7 @@ export default function MusicPlayer({
                     <rect x="14" y="4" width="4" height="16" rx="1" />
                   </svg>
                 ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 2 }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white" className="ml-0.5">
                     <path d="M5 3l14 9-14 9V3z" />
                   </svg>
                 )}
@@ -458,26 +243,24 @@ export default function MusicPlayer({
               <button
                 onClick={onNext}
                 disabled={!isHost}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: isHost ? "pointer" : "not-allowed",
-                  opacity: isHost ? 0.6 : 0.2,
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  transition: "opacity 0.2s",
-                }}
+                className={`flex items-center border-none bg-transparent p-0 transition-opacity ${
+                  isHost ? "cursor-pointer opacity-60 hover:opacity-100" : "cursor-not-allowed opacity-20"
+                }`}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
                   <path d="M5 4l10 8-10 8V4zm14 0h2v16h-2z" />
                 </svg>
               </button>
 
-              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="ml-auto flex items-center gap-2">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="rgba(255,255,255,0.4)">
-                  <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"
-                    stroke="rgba(255,255,255,0.4)" strokeWidth="2" fill="none" strokeLinecap="round" />
+                  <path
+                    d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"
+                    stroke="rgba(255,255,255,0.4)"
+                    strokeWidth="2"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
                 </svg>
                 <input
                   type="range"
@@ -486,21 +269,13 @@ export default function MusicPlayer({
                   step={0.01}
                   value={volume}
                   onChange={(e) => setVolume(parseFloat(e.target.value))}
-                  style={{ width: 70, accentColor: "#7c3aed", cursor: "pointer", height: 3 }}
+                  className="h-[3px] w-[70px] cursor-pointer accent-white/70"
                 />
               </div>
             </div>
 
             {!isHost && (
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.2)",
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontStyle: "italic",
-                }}
-              >
+              <p className="m-0 text-[11px] italic text-white/20 font-sans">
                 Chỉ host mới có thể điều khiển nhạc
               </p>
             )}
@@ -512,12 +287,12 @@ export default function MusicPlayer({
 
       <style>{`
         @keyframes spin-slow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes border-spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
         }
       `}</style>
     </div>

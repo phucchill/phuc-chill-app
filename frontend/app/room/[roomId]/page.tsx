@@ -154,54 +154,19 @@ export default function RoomPage() {
   // ── Màn hình chờ duyệt ──────────────────────────────────────────────────────
   if (waitingApproval) {
     return (
-      <main style={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg, #020617 0%, #0d0720 40%, #020617 100%)",
-        color: "white",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexDirection: "column",
-        fontFamily: "'DM Sans', sans-serif",
-        padding: 24,
-      }}>
+      <main className="flex min-h-screen flex-col items-center justify-center bg-black p-6 font-sans text-white">
         {rejectedMessage && (
-          <div style={{
-            padding: "14px 24px",
-            background: "rgba(239,68,68,0.15)",
-            color: "#ef4444",
-            border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 16,
-            marginBottom: 20,
-            fontWeight: 500,
-          }}>
+          <div className="mb-5 rounded-2xl border border-[#fa243c]/30 bg-[#fa243c]/10 px-6 py-3.5 font-medium text-[#fa243c]">
             {rejectedMessage}
           </div>
         )}
-        <div style={{
-          padding: "40px 30px",
-          borderRadius: 24,
-          background: "rgba(255,255,255,0.02)",
-          border: "1px solid rgba(167,139,250,0.15)",
-          textAlign: "center",
-          maxWidth: 400,
-        }}>
-          <div style={{
-            width: 32, height: 32,
-            border: "3px solid rgba(167,139,250,0.2)",
-            borderTopColor: "#a78bfa",
-            borderRadius: "50%",
-            margin: "0 auto 20px",
-            animation: "spin 1s linear infinite",
-          }} />
-          <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 12px" }}>
-            Đang chờ host xác nhận
-          </h1>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>
+        <div className="max-w-[400px] rounded-3xl border border-white/10 bg-[#0c0c0e] px-[30px] py-10 text-center">
+          <div className="mx-auto mb-5 h-8 w-8 animate-spin rounded-full border-[3px] border-white/10 border-t-[#ff2d55]" />
+          <h1 className="m-0 mb-3 text-xl font-semibold">Đang chờ host xác nhận</h1>
+          <p className="text-[13px] text-white/50">
             Bạn đang yêu cầu tham gia phòng riêng tư. Vui lòng chờ chủ phòng phê duyệt.
           </p>
         </div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </main>
     );
   }
@@ -215,90 +180,47 @@ export default function RoomPage() {
         href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap"
       />
 
-      <main style={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg, #020617 0%, #0d0720 40%, #020617 100%)",
-        padding: "20px 24px",
-        color: "white",
-        fontFamily: "'DM Sans', sans-serif",
-      }}>
-        <div style={{ maxWidth: 1720, margin: "0 auto" }}>
+      <main className="min-h-screen bg-black px-6 py-5 font-sans text-white">
+        <div className="mx-auto max-w-[1720px]">
           {/* Chat giờ là 1 cột riêng bên phải => 3 cột: trái (280) / giữa (1fr) / chat (360) */}
-          <div style={{ display: "grid", gridTemplateColumns: "280px 1fr 360px", gap: 20, alignItems: "start" }}>
-
+          <div className="grid items-start gap-5 [grid-template-columns:280px_1fr_360px]">
             {/* ==================== CỘT TRÁI ==================== */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px" }}>
-                <span style={{ fontSize: 19 }}>🎧</span>
-                <span style={{
-                  fontFamily: "'Cormorant Garamond', serif",
-                  fontSize: 14,
-                  letterSpacing: "0.2em",
-                  textTransform: "uppercase",
-                  color: "rgba(255,255,255,0.55)",
-                }}>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-2.5 p-1">
+                <span className="text-[19px]">🎧</span>
+                <span className="font-serif text-sm uppercase tracking-[0.2em] text-white/55">
                   MUSIC ROOM
                 </span>
               </div>
 
               {/* Yêu cầu tham gia phòng (chỉ Host) */}
               {isHost && joinRequests.length > 0 && (
-                <div style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(167,139,250,0.25)",
-                  borderRadius: 20,
-                  padding: 18,
-                  backdropFilter: "blur(20px)",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                    <span style={{ color: "#a78bfa", fontSize: 15 }}>⏳</span>
-                    <h3 style={{ margin: 0, color: "#c4b5fd", fontSize: 14, fontWeight: 600 }}>
+                <div className="rounded-2xl border border-white/5 bg-[#111113] p-[18px]">
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="text-[15px] text-white/70">⏳</span>
+                    <h3 className="m-0 text-sm font-semibold text-white/80">
                       Yêu cầu tham gia ({joinRequests.length})
                     </h3>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 280, overflowY: "auto" }}>
+                  <div className="flex max-h-[280px] flex-col gap-2.5 overflow-y-auto">
                     {joinRequests.map((req) => (
                       <div
                         key={req.userId}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: "10px 12px",
-                          background: "rgba(255,255,255,0.03)",
-                          borderRadius: 12,
-                          border: "1px solid rgba(255,255,255,0.06)",
-                        }}
+                        className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5"
                       >
-                        <span style={{ fontSize: 14, color: "rgba(255,255,255,0.9)" }}>
+                        <span className="text-sm text-white/90">
                           {req.userName || "Người dùng"}
                         </span>
-                        <div style={{ display: "flex", gap: 8 }}>
+                        <div className="flex gap-2">
                           <button
                             onClick={() => approveJoin(req.userId)}
-                            style={{
-                              padding: "6px 12px",
-                              background: "rgba(52,211,153,0.15)",
-                              border: "1px solid rgba(52,211,153,0.4)",
-                              borderRadius: 8,
-                              color: "#34d399",
-                              fontSize: 13,
-                              cursor: "pointer",
-                            }}
+                            className="cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[13px] text-white/70 hover:bg-white/10"
                           >
                             Duyệt
                           </button>
                           <button
                             onClick={() => rejectJoin(req.userId)}
-                            style={{
-                              padding: "6px 12px",
-                              background: "rgba(248,113,113,0.1)",
-                              border: "1px solid rgba(248,113,113,0.4)",
-                              borderRadius: 8,
-                              color: "#f87171",
-                              fontSize: 13,
-                              cursor: "pointer",
-                            }}
+                            className="cursor-pointer rounded-lg border border-white/5 bg-transparent px-3 py-1.5 text-[13px] text-white/40 hover:bg-white/5"
                           >
                             Từ chối
                           </button>
@@ -312,60 +234,24 @@ export default function RoomPage() {
               <MemberList participants={participants} />
 
               {/* Điều khiển phòng */}
-              <div style={{
-                background: "rgba(255,255,255,0.035)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 24,
-                padding: "20px",
-                backdropFilter: "blur(20px)",
-              }}>
-                <div style={{ marginBottom: 16 }}>
-                  <span style={{
-                    fontFamily: "'Cormorant Garamond', serif",
-                    fontSize: 14,
-                    letterSpacing: "0.15em",
-                    textTransform: "uppercase",
-                    color: "rgba(255,255,255,0.45)",
-                  }}>
+              <div className="rounded-3xl border border-white/5 bg-[#111113] p-5">
+                <div className="mb-4">
+                  <span className="font-serif text-sm uppercase tracking-[0.15em] text-white/45">
                     ĐIỀU KHIỂN PHÒNG
                   </span>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div className="flex flex-col gap-2">
                   {isHost && (
                     <>
                       <button
                         onClick={() => alert("Cài đặt phòng - đang phát triển")}
-                        style={{
-                          padding: "14px 16px",
-                          background: "rgba(255,255,255,0.04)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          borderRadius: 16,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 12,
-                          fontSize: 14,
-                          cursor: "pointer",
-                          textAlign: "left",
-                          color: "white",
-                        }}
+                        className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white px-4 py-3.5 text-left text-sm text-black hover:bg-white/90"
                       >
                         ⚙️ Cài đặt phòng
                       </button>
                       <button
                         onClick={handleEndRoom}
-                        style={{
-                          padding: "14px 16px",
-                          background: "linear-gradient(135deg, rgba(248,113,113,0.22), rgba(239,68,68,0.12))",
-                          border: "1px solid rgba(248,113,113,0.35)",
-                          borderRadius: 16,
-                          color: "#fca5a5",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 12,
-                          fontSize: 14,
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
+                        className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white px-4 py-3.5 text-left text-sm text-black hover:bg-white/90"
                       >
                         ⏹️ Kết thúc phòng
                       </button>
@@ -373,19 +259,9 @@ export default function RoomPage() {
                   )}
                   <button
                     onClick={handleLeaveRoom}
-                    style={{
-                      padding: "14px 16px",
-                      background: "rgba(248,113,113,0.1)",
-                      border: "1px solid rgba(248,113,113,0.25)",
-                      borderRadius: 16,
-                      color: "#f87171",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      fontSize: 14,
-                      cursor: "pointer",
-                      marginTop: isHost ? 8 : 0,
-                    }}
+                    className={`flex cursor-pointer items-center gap-3 rounded-2xl bg-[#fa243c] px-4 py-3.5 text-left text-sm text-white hover:bg-[#fa243c]/90 ${
+                      isHost ? "mt-2" : ""
+                    }`}
                   >
                     ← Rời phòng
                   </button>
@@ -394,108 +270,74 @@ export default function RoomPage() {
             </div>
 
             {/* ==================== CỘT GIỮA: Player + Hàng chờ/Chọn bài ==================== */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div className="flex flex-col gap-5">
               {/* Header Phòng */}
-              <div style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 20,
-                padding: "16px 22px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                backdropFilter: "blur(20px)",
-              }}>
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-[#111113] px-[22px] py-4">
                 <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <h1 style={{
-                      fontFamily: "'Cormorant Garamond', serif",
-                      fontSize: 20,
-                      fontWeight: 700,
-                      margin: 0,
-                    }}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="m-0 font-serif text-xl font-bold text-white">
                       {roomName || "Music Room"}
                     </h1>
-                    <span style={{
-                      padding: "2px 9px",
-                      borderRadius: 20,
-                      fontSize: 10,
-                      letterSpacing: "0.06em",
-                      textTransform: "uppercase",
-                      background: isPrivateRoom ? "rgba(248,113,113,0.12)" : "rgba(52,211,153,0.12)",
-                      border: `1px solid ${isPrivateRoom ? "rgba(248,113,113,0.25)" : "rgba(52,211,153,0.25)"}`,
-                      color: isPrivateRoom ? "#f87171" : "#34d399",
-                    }}>
+                    <span
+                      className={`rounded-full border px-[9px] py-0.5 text-[10px] uppercase tracking-[0.06em] ${
+                        isPrivateRoom
+                          ? "border-[#fa243c]/25 bg-[#fa243c]/10 text-[#fa243c]"
+                          : "border-white/15 bg-white/5 text-white/70"
+                      }`}
+                    >
                       {isPrivateRoom ? "Riêng tư" : "Công khai"}
                     </span>
                     {isHost && (
-                      <span style={{
-                        padding: "2px 8px",
-                        background: "linear-gradient(135deg, rgba(124,58,237,0.3), rgba(236,72,153,0.2))",
-                        border: "1px solid rgba(167,139,250,0.3)",
-                        borderRadius: 20,
-                        fontSize: 10,
-                        color: "#a78bfa",
-                        letterSpacing: "0.06em",
-                        textTransform: "uppercase",
-                      }}>
+                      <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-white/70">
                         Host
                       </span>
                     )}
                   </div>
-                  <p style={{ margin: "4px 0 0", fontSize: 13, color: "rgba(255,255,255,0.45)" }}>
+                  <p className="m-0 mt-1 text-[13px] text-white/45">
                     Phòng <strong>{roomId}</strong> · {participants.length} người đang nghe
                   </p>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "6px 12px",
-                    background: "rgba(255,255,255,0.03)",
-                    border: `1px solid ${connected ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)"}`,
-                    borderRadius: 20,
-                  }}>
-                    <div style={{
-                      width: 7, height: 7, borderRadius: "50%",
-                      background: connected ? "#34d399" : "#f87171",
-                    }} />
-                    <span style={{ fontSize: 12, color: connected ? "#34d399" : "#f87171" }}>
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`flex items-center gap-1.5 rounded-full border bg-white/[0.03] px-3 py-1.5 ${
+                      connected ? "border-white/20" : "border-[#fa243c]/30"
+                    }`}
+                  >
+                    <div
+                      className={`h-[7px] w-[7px] rounded-full ${
+                        connected ? "bg-white/70" : "bg-[#fa243c]"
+                      }`}
+                    />
+                    <span className={`text-xs ${connected ? "text-white/70" : "text-[#fa243c]"}`}>
                       {connected ? "Đã kết nối" : "Đang kết nối..."}
                     </span>
                   </div>
 
-                  <div style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "6px 12px",
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(167,139,250,0.2)",
-                    borderRadius: 20,
-                  }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2.5">
+                  <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
                       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                       <circle cx="9" cy="7" r="4" />
                       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
                       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                     </svg>
-                    <span style={{ fontSize: 13 }}>{participants.length}</span>
+                    <span className="text-[13px] text-white/80">{participants.length}</span>
                   </div>
 
-                  <button onClick={copyRoomLink} style={{
-                    padding: "8px 16px",
-                    background: copied ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.05)",
-                    border: copied ? "1px solid #34d399" : "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 20,
-                    color: copied ? "#34d399" : "white",
-                    fontSize: 13,
-                    cursor: "pointer",
-                  }}>
+                  <button
+                    onClick={copyRoomLink}
+                    className={`cursor-pointer rounded-full border px-4 py-2 text-[13px] ${
+                      copied
+                        ? "border-white bg-white text-black"
+                        : "border-white/10 bg-white/5 text-white hover:bg-white/10"
+                    }`}
+                  >
                     {copied ? "✓ Đã sao chép" : "Chia sẻ phòng"}
                   </button>
                 </div>
               </div>
 
-              {/* MusicPlayer với metadata từ musicAPI */}
+              {/* MusicPlayer với metadata từ musicAPI — vùng phát sáng neon duy nhất */}
               <MusicPlayer
                 audioRef={audioRef}
                 roomId={roomId}
@@ -515,23 +357,9 @@ export default function RoomPage() {
               />
 
               {/* Hàng chờ bài hát / Chọn bài — nằm ngay dưới MusicPlayer */}
-              <div style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 20,
-                backdropFilter: "blur(20px)",
-                overflow: "hidden",
-              }}>
+              <div className="overflow-hidden rounded-2xl border border-white/5 bg-[#111113]">
                 {/* Tab switcher: Hàng chờ / Chọn bài */}
-                <div style={{
-                  display: "flex",
-                  gap: 2,
-                  padding: 4,
-                  margin: 12,
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  borderRadius: 14,
-                }}>
+                <div className="m-3 flex gap-0.5 rounded-2xl border border-white/5 bg-black/30 p-1">
                   {(
                     [
                       { key: "queue", label: pendingCount > 0 ? `🎵 Hàng chờ (${pendingCount})` : "🎵 Hàng chờ" },
@@ -541,28 +369,18 @@ export default function RoomPage() {
                     <button
                       key={key}
                       onClick={() => setCenterTab(key)}
-                      style={{
-                        flex: 1,
-                        padding: "8px 4px",
-                        borderRadius: 10,
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        fontFamily: "'DM Sans', sans-serif",
-                        transition: "all 0.15s",
-                        background: centerTab === key
-                          ? "linear-gradient(135deg, rgba(124,58,237,0.35), rgba(236,72,153,0.2))"
-                          : "transparent",
-                        color: centerTab === key ? "#c4b5fd" : "rgba(255,255,255,0.35)",
-                        fontWeight: centerTab === key ? 500 : 400,
-                      }}
+                      className={`flex-1 rounded-[10px] border-none px-1 py-2 text-xs transition-colors ${
+                        centerTab === key
+                          ? "bg-white font-medium text-black"
+                          : "bg-transparent text-white/35 hover:text-white/60"
+                      }`}
                     >
                       {label}
                     </button>
                   ))}
                 </div>
 
-                <div style={{ padding: "0 12px 12px" }}>
+                <div className="px-3 pb-3">
                   {centerTab === "queue" && (
                     <PlaylistQueue
                       songs={queueSongs}
@@ -575,49 +393,22 @@ export default function RoomPage() {
                   )}
 
                   {centerTab === "picker" && (
-                    <SongPicker
-                      isHost={isHost}
-                      onRequest={handleSongRequest}
-                    />
+                    <SongPicker isHost={isHost} onRequest={handleSongRequest} />
                   )}
                 </div>
               </div>
             </div>
 
             {/* ==================== CỘT PHẢI: Chat riêng ==================== */}
-            <div style={{
-              display: "flex",
-              flexDirection: "column",
-              height: "calc(100vh - 40px)",
-              position: "sticky",
-              top: 20,
-            }}>
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "12px 16px",
-                marginBottom: 12,
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 16,
-                backdropFilter: "blur(20px)",
-              }}>
-                <span style={{
-                  fontFamily: "'Cormorant Garamond', serif",
-                  fontSize: 15,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  color: "rgba(255,255,255,0.7)",
-                }}>
+            <div className="sticky top-5 flex h-[calc(100vh-40px)] flex-col">
+              <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/5 bg-[#111113] px-4 py-3">
+                <span className="font-serif text-[15px] uppercase tracking-[0.1em] text-white/70">
                   💬 Trò chuyện
                 </span>
-                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-                  {participants.length} online
-                </span>
+                <span className="text-xs text-white/40">{participants.length} online</span>
               </div>
 
-              <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <div className="flex min-h-0 flex-1 flex-col">
                 <ChatBox
                   messages={messages}
                   chatText={chatText}
@@ -628,7 +419,6 @@ export default function RoomPage() {
                 />
               </div>
             </div>
-
           </div>
         </div>
       </main>

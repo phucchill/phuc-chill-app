@@ -53,55 +53,22 @@ export default function SongPicker({ onRequest, isHost }: SongPickerProps) {
   };
 
   return (
-    <div
-      style={{
-      background: "#151425",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 20,
-        overflow: "hidden",
-        backdropFilter: "blur(20px)",
-        display: "flex",
-        flexDirection: "column",
-        height: 420,
-      }}
-    >
+    <div className="flex h-[420px] flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#111113]">
       {/* Header */}
-      <div
-        style={{
-          padding: "14px 18px 10px",
-          borderBottom: "1px solid rgba(255,255,255,0.05)",
-         background: "#1a192b",
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <span
-            style={{
-              fontFamily: "'Cormorant Garamond', serif",
-              fontSize: 13,
-              letterSpacing: "0.15em",
-              textTransform: "uppercase",
-              color: "rgba(255,255,255,0.4)",
-            }}
-          >
+      <div className="flex-shrink-0 border-b border-white/5 px-[18px] pb-2.5 pt-3.5">
+        <div className="mb-2.5 flex items-center gap-2">
+          <span className="font-serif text-[13px] uppercase tracking-[0.15em] text-white/40">
             Chọn bài hát
           </span>
-          <span
-            style={{
-              marginLeft: "auto",
-              fontSize: 10,
-              color: "rgba(168, 0, 0, 0.2)",
-              fontFamily: "'DM Sans', sans-serif",
-            }}
-          >
+          <span className="ml-auto font-sans text-[10px] text-white/25">
             {isHost ? "Thêm thẳng vào hàng chờ" : "Gửi yêu cầu cho host"}
           </span>
         </div>
 
         {/* Search */}
-        <div style={{ position: "relative", marginBottom: 8 }}>
+        <div className="relative mb-2">
           <svg
-            style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2"
             width="13"
             height="13"
             viewBox="0 0 24 24"
@@ -117,42 +84,21 @@ export default function SongPicker({ onRequest, isHost }: SongPickerProps) {
             placeholder="Tìm tên bài hoặc ca sĩ..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "8px 10px 8px 30px",
-              background: "#232238",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: 10,
-              color: "white",
-              fontSize: 12,
-              fontFamily: "'DM Sans', sans-serif",
-              outline: "none",
-              boxSizing: "border-box",
-            }}
+            className="box-border w-full rounded-[10px] border border-white/5 bg-black/40 py-2 pl-[30px] pr-2.5 font-sans text-xs text-white outline-none placeholder:text-white/25"
           />
         </div>
 
         {/* Genre filter */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div className="flex flex-wrap gap-1.5">
           {GENRES.map((g) => (
             <button
               key={g}
               onClick={() => setGenre(g)}
-              style={{
-                padding: "3px 10px",
-                borderRadius: 20,
-                fontSize: 11,
-                fontFamily: "'DM Sans', sans-serif",
-                cursor: "pointer",
-                border: genre === g
-                  ? "1px solid rgba(167,139,250,0.5)"
-                  : "1px solid rgba(255,255,255,0.08)",
-                background: genre === g
-                  ? "linear-gradient(135deg, rgba(124,58,237,0.3), rgba(236,72,153,0.15))"
-                  : "rgba(255,255,255,0.03)",
-                color: genre === g ? "#c4b5fd" : "rgba(255,255,255,0.4)",
-                transition: "all 0.15s",
-              }}
+              className={`rounded-full border px-2.5 py-[3px] font-sans text-[11px] transition-colors ${
+                genre === g
+                  ? "border-white bg-white text-black"
+                  : "border-white/10 bg-white/[0.03] text-white/40 hover:text-white/60"
+              }`}
             >
               {g}
             </button>
@@ -161,22 +107,9 @@ export default function SongPicker({ onRequest, isHost }: SongPickerProps) {
       </div>
 
       {/* Danh sách bài */}
-      <div
-        className="songPickerScroll"
-        style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
-      >
+      <div className="songPickerScroll min-h-0 flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              color: "rgba(255,255,255,0.2)",
-              fontSize: 13,
-              fontFamily: "'DM Sans', sans-serif",
-            }}
-          >
+          <div className="flex h-full items-center justify-center font-sans text-[13px] text-white/20">
             Không tìm thấy bài nào
           </div>
         ) : (
@@ -185,97 +118,37 @@ export default function SongPicker({ onRequest, isHost }: SongPickerProps) {
             return (
               <div
                 key={song.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "9px 16px",
-                  borderBottom: "1px solid rgba(255,255,255,0.03)",
-                  transition: "background 0.15s",
-                }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = "rgba(255,255,255,0.03)")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
+                className="flex items-center gap-2.5 border-b border-white/[0.03] px-4 py-[9px] transition-colors hover:bg-white/[0.03]"
               >
                 {/* Ảnh bìa */}
                 <div
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 8,
-                    backgroundImage: `url(${song.songAvatar})`,
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
-                    backgroundColor: "#312e81",
-                    flexShrink: 0,
-                  }}
+                  className="h-[38px] w-[38px] flex-shrink-0 rounded-lg bg-cover bg-center bg-[#1a1a1c]"
+                  style={{ backgroundImage: `url(${song.songAvatar})` }}
                 />
 
                 {/* Tên bài / ca sĩ */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: "rgba(255,255,255,0.88)",
-                      fontFamily: "'DM Sans', sans-serif",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 truncate font-sans text-[13px] font-medium text-white/90">
                     {song.songName}
                   </p>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 11,
-                      color: "rgba(255,255,255,0.32)",
-                      fontFamily: "'DM Sans', sans-serif",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
+                  <p className="m-0 truncate font-sans text-[11px] text-white/30">
                     {song.songArtist} · {song.genre}
                   </p>
                 </div>
 
                 {/* Thời lượng */}
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: "rgba(255,255,255,0.25)",
-                    fontFamily: "'DM Sans', sans-serif",
-                    flexShrink: 0,
-                  }}
-                >
+                <span className="flex-shrink-0 font-sans text-[11px] text-white/25">
                   {song.duration}
                 </span>
 
                 {/* Nút thêm */}
                 <button
                   onClick={() => !done && handleRequest(song)}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: 8,
-                    fontSize: 11,
-                    fontFamily: "'DM Sans', sans-serif",
-                    cursor: done ? "default" : "pointer",
-                    flexShrink: 0,
-                    transition: "all 0.15s",
-                    border: done
-                      ? "1px solid rgba(143, 65, 151, 0.3)"
-                      : "1px solid rgba(167,139,250,0.35)",
-                    background: done
-                      ? "rgba(52,211,153,0.1)"
-                      : "rgba(124,58,237,0.15)",
-                    color: done ? "#34d399" : "#c4b5fd",
-                  }}
+                  className={`flex-shrink-0 rounded-lg border px-3 py-[5px] font-sans text-[11px] transition-colors ${
+                    done
+                      ? "cursor-default border-white/10 bg-white/5 text-white/40"
+                      : "cursor-pointer border-white bg-white text-black hover:bg-white/90"
+                  }`}
                 >
                   {done ? "✓ Đã thêm" : isHost ? "+ Thêm" : "Yêu cầu"}
                 </button>
@@ -289,12 +162,12 @@ export default function SongPicker({ onRequest, isHost }: SongPickerProps) {
         .songPickerScroll::-webkit-scrollbar { width: 5px; }
         .songPickerScroll::-webkit-scrollbar-track { background: transparent; }
         .songPickerScroll::-webkit-scrollbar-thumb {
-          background: linear-gradient(180deg, rgba(124,58,237,0.6), rgba(236,72,153,0.6));
+          background: rgba(255,255,255,0.15);
           border-radius: 999px;
         }
         .songPickerScroll {
           scrollbar-width: thin;
-          scrollbar-color: rgba(167,139,250,0.5) transparent;
+          scrollbar-color: rgba(255,255,255,0.15) transparent;
         }
       `}</style>
     </div>
