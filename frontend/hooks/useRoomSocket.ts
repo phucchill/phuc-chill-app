@@ -5,18 +5,24 @@ import { createSocket } from "../lib/socket";
 import { useChatHistory } from "./useChatHistory";
 import { useAudio } from "./useAudio";
 import type { RoomState, WSMessage } from "../types/websocket";
+import type { RoomPermissions, SongSource } from "../types/upload";
+import type { YoutubePlayerHandle } from "../types/youtubePlayer";
+import { extractYoutubeVideoId, isValidYoutubeUrl } from "../lib/youtube";
 import { useRouter } from "next/navigation";
 
 interface UseRoomSocketOptions {
   roomId: string;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   apiBase?: string;
+  /** Ref tới YouTube IFrame Player (xem MusicPlayer.tsx) */
+  youtubePlayerRef?: React.RefObject<YoutubePlayerHandle | null>;
 }
 
 export function useRoomSocket({
   roomId,
   audioRef,
   apiBase = "",
+  youtubePlayerRef,
 }: UseRoomSocketOptions) {
   const router = useRouter();
   const socketRef = useRef<WebSocket | null>(null);
@@ -33,19 +39,101 @@ export function useRoomSocket({
     { userId: string; userName: string }[]
   >([]);
 
-  const {
-    needsInteraction,
-    syncPlay,
-    syncPause,
-    syncSeek,
-    handleInteract,
-  } = useAudio(audioRef);
+  // Chỉ còn dùng needsInteraction/handleInteract từ useAudio (phần xử lý
+  // chính sách autoplay của trình duyệt cho thẻ <audio> gốc). syncPlay/
+  // syncPause/syncSeek KHÔNG còn dùng nữa — toàn bộ điều khiển audio/
+  // YouTube giờ đi qua 2 hàm "trọng tài" activateAudio()/activateYoutube()
+  // bên dưới, để đảm bảo 2 player luôn loại trừ lẫn nhau ở MỌI luồng (tự
+  // bấm lẫn nhận đồng bộ từ server).
+  const { needsInteraction, handleInteract } = useAudio(audioRef);
 
   const { messages, isLoading, appendMessage } = useChatHistory({
     roomId,
     currentUserId: userId,
     apiBase,
   });
+
+  // Nhớ lại bài + trạng thái play/pause ĐÃ THỰC SỰ ÁP DỤNG lên player gần
+  // nhất. ROOM_STATE được server broadcast cho MỌI thay đổi của phòng —
+  // kể cả những việc chẳng liên quan gì tới playback (ai đó thêm bài vào
+  // hàng chờ, join/leave, đổi quyền...). Nếu cứ thấy ROOM_STATE là seek +
+  // play lại, nhạc đang phát sẽ bị khựng dù không có gì thay đổi. Ref này
+  // giúp chỉ re-sync khi bài hoặc trạng thái play/pause THẬT SỰ đổi.
+  const lastAppliedRef = useRef<{ src: string; isPlaying: boolean }>({
+    src: "",
+    isPlaying: false,
+  });
+
+  // ── Helper: bài hiện tại có phải link YouTube không ─────────────────────────
+  const isYoutubeTrack = (src?: string) => !!src && isValidYoutubeUrl(src);
+
+  // isSameAudioSrc(): so sánh audio.src (LUÔN là URL tuyệt đối do trình
+  // duyệt tự chuẩn hoá) với src cần phát — src có thể là đường dẫn tương
+  // đối (bài thư viện, vd "/Assets/songs/x.mp3") HOẶC URL tuyệt đối (file
+  // upload, vd "http://host:8080/uploads/x.mp3", do backend trả về).
+  const isSameAudioSrc = (audio: HTMLAudioElement, src: string) => {
+    try {
+      return audio.src === new URL(src, window.location.href).href;
+    } catch {
+      return audio.src === src;
+    }
+  };
+
+  // ── TRỌNG TÀI: đảm bảo 2 player luôn loại trừ lẫn nhau ───────────────────────
+  const activateYoutube = (videoId: string, startSeconds: number) => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    youtubePlayerRef?.current?.youtube.playVideo(videoId, startSeconds);
+  };
+
+  const activateAudio = async (
+    src: string,
+    seekSeconds: number | undefined,
+    autoplay: boolean
+  ): Promise<boolean> => {
+    youtubePlayerRef?.current?.youtube.pauseVideo();
+
+    const audio = audioRef.current;
+    if (!audio) return false;
+
+    if (!isSameAudioSrc(audio, src)) {
+      audio.src = src;
+      audio.load();
+    }
+
+    if (typeof seekSeconds === "number") {
+      audio.currentTime = seekSeconds;
+    }
+
+    if (!autoplay) return true;
+
+    try {
+      await audio.play();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const pauseCurrent = (songId?: string) => {
+    if (isYoutubeTrack(songId)) {
+      youtubePlayerRef?.current?.youtube.pauseVideo();
+    } else {
+      audioRef.current?.pause();
+    }
+  };
+
+  const seekCurrent = (songId: string | undefined, seconds: number) => {
+    if (isYoutubeTrack(songId)) {
+      youtubePlayerRef?.current?.youtube.seekTo(seconds);
+    } else if (audioRef.current) {
+      audioRef.current.currentTime = seconds;
+    }
+  };
 
   // ── Gửi message qua WebSocket ────────────────────────────────────────────────
   const sendWS = (type: string, payload: unknown) => {
@@ -116,15 +204,26 @@ export function useRoomSocket({
         const state = payload as RoomState;
         setRoomState(state);
 
-        // Không còn file mặc định /music/sao-hang-a.mp3 nữa — nếu phòng
-        // chưa có bài nào (currentSong rỗng) thì không cố phát gì cả,
-        // chỉ đồng bộ progress/pause.
-        if (state.isPlaying && state.currentSong) {
-          setTimeout(() => {
-            void syncPlay(state.currentSong, state.progress || 0);
-          }, 300);
-        } else {
-          syncPause(state.progress || 0);
+        const trackChanged = state.currentSong !== lastAppliedRef.current.src;
+        const playStateChanged = state.isPlaying !== lastAppliedRef.current.isPlaying;
+
+        if (trackChanged || playStateChanged) {
+          lastAppliedRef.current = { src: state.currentSong, isPlaying: state.isPlaying };
+
+          if (state.isPlaying && state.currentSong) {
+            if (isYoutubeTrack(state.currentSong)) {
+              const videoId = extractYoutubeVideoId(state.currentSong);
+              if (videoId) {
+                setTimeout(() => activateYoutube(videoId, state.progress || 0), 300);
+              }
+            } else {
+              setTimeout(() => {
+                void activateAudio(state.currentSong, state.progress || 0, true);
+              }, 300);
+            }
+          } else {
+            pauseCurrent(state.currentSong);
+          }
         }
 
         break;
@@ -132,7 +231,14 @@ export function useRoomSocket({
 
       case "SYNC_PLAY": {
         if (payload.songId) {
-          syncPlay(payload.songId, payload.progress || 0);
+          lastAppliedRef.current = { src: payload.songId, isPlaying: true };
+
+          if (isYoutubeTrack(payload.songId)) {
+            const videoId = extractYoutubeVideoId(payload.songId);
+            if (videoId) activateYoutube(videoId, payload.progress || 0);
+          } else {
+            void activateAudio(payload.songId, payload.progress || 0, true);
+          }
         }
         setRoomState((prev) =>
           prev
@@ -148,7 +254,8 @@ export function useRoomSocket({
       }
 
       case "SYNC_PAUSE": {
-        syncPause(payload.progress || 0);
+        lastAppliedRef.current = { ...lastAppliedRef.current, isPlaying: false };
+        pauseCurrent(payload.songId);
         setRoomState((prev) =>
           prev ? { ...prev, isPlaying: false, progress: payload.progress || 0 } : prev
         );
@@ -156,7 +263,7 @@ export function useRoomSocket({
       }
 
       case "SYNC_SEEK": {
-        syncSeek(payload.progress || 0);
+        seekCurrent(payload.songId, payload.progress || 0);
         setRoomState((prev) =>
           prev ? { ...prev, progress: payload.progress || 0 } : prev
         );
@@ -261,14 +368,12 @@ export function useRoomSocket({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
-  // ── Auto-next khi bài hiện tại phát hết ─────────────────────────────────────
+  // ── Auto-next khi bài hiện tại (mp3) phát hết ────────────────────────────────
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     const handleEnded = () => {
-      // Chỉ host gửi lệnh next — tránh mỗi client trong phòng đều tự ý
-      // gửi PLAYER_NEXT cùng lúc khi audio kết thúc đồng thời.
       if (roomState?.hostId && roomState.hostId === userIdRef.current) {
         sendWS("PLAYER_NEXT", {});
       }
@@ -279,89 +384,105 @@ export function useRoomSocket({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomState?.hostId, userId]);
 
-  // ── Điều khiển nhạc ──────────────────────────────────────────────────────────
+  // ── Điều khiển nhạc (tự bấm tại chính client này) ────────────────────────────
 
   const handlePlay = async () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
     const src = roomState?.currentSong;
+    if (!src) return;
 
-    // Không còn fallback về /music/sao-hang-a.mp3 (đã xóa file này).
-    // Nếu phòng chưa có bài nào được chọn thì báo host chọn bài trước,
-    // thay vì cố phát 1 file không tồn tại.
-    if (!src) {
-    return;
-  }
+    if (isYoutubeTrack(src)) {
+      const videoId = extractYoutubeVideoId(src);
+      if (!videoId) return;
 
-    try {
-      const currentPath = new URL(audio.src).pathname;
-      if (currentPath !== src && !currentPath.endsWith(src)) {
-        audio.src = src;
-        audio.load();
-      }
-    } catch {
-      audio.src = src;
-      audio.load();
+      const startAt = roomState?.progress || 0;
+      activateYoutube(videoId, startAt);
+      lastAppliedRef.current = { src, isPlaying: true };
+
+      sendWS("SYNC_PLAY", { songId: src, progress: startAt, isPlaying: true });
+      setRoomState((prev) => (prev ? { ...prev, isPlaying: true } : prev));
+      return;
     }
 
-    try {
-      await audio.play();
-
-      sendWS("SYNC_PLAY", {
-        songId: src,
-        progress: audio.currentTime,
-        isPlaying: true,
-      });
-
-      setRoomState((prev) =>
-        prev ? { ...prev, isPlaying: true } : prev
-      );
-    } catch {
+    const ok = await activateAudio(src, undefined, true);
+    if (!ok) {
       alert("Không phát được nhạc. Kiểm tra file mp3 hoặc đường dẫn.");
+      return;
     }
+    lastAppliedRef.current = { src, isPlaying: true };
+
+    sendWS("SYNC_PLAY", {
+      songId: src,
+      progress: audioRef.current?.currentTime ?? 0,
+      isPlaying: true,
+    });
+    setRoomState((prev) => (prev ? { ...prev, isPlaying: true } : prev));
   };
 
   const handlePause = () => {
+    const src = roomState?.currentSong;
+
+    if (isYoutubeTrack(src)) {
+      const currentTime = youtubePlayerRef?.current?.youtube.getCurrentTime() ?? 0;
+      youtubePlayerRef?.current?.youtube.pauseVideo();
+      lastAppliedRef.current = { ...lastAppliedRef.current, isPlaying: false };
+
+      sendWS("SYNC_PAUSE", { songId: src || "", progress: currentTime, isPlaying: false });
+      setRoomState((prev) => (prev ? { ...prev, isPlaying: false, progress: currentTime } : prev));
+      return;
+    }
+
     const audio = audioRef.current;
     if (!audio) return;
 
     audio.pause();
+    lastAppliedRef.current = { ...lastAppliedRef.current, isPlaying: false };
 
     sendWS("SYNC_PAUSE", {
-      songId: roomState?.currentSong || "",
+      songId: src || "",
       progress: audio.currentTime,
       isPlaying: false,
     });
 
-    setRoomState((prev) =>
-      prev ? { ...prev, isPlaying: false } : prev
-    );
+    setRoomState((prev) => (prev ? { ...prev, isPlaying: false, progress: audio.currentTime } : prev));
   };
 
-  const handleSeek = () => {
+  // handleSeek(explicitSeconds?): nhận thêm tham số TÙY CHỌN là vị trí
+  // CHÍNH XÁC người dùng vừa kéo tới (do MusicPlayer.tsx truyền lên qua
+  // onSeek(val)). BẮT BUỘC ưu tiên dùng giá trị này thay vì tự đọc lại
+  // youtubePlayerRef.current.youtube.getCurrentTime() — vì seekTo() của
+  // YouTube là BẤT ĐỒNG BỘ (còn phải buffer), gọi getCurrentTime() ngay
+  // sau khi seekTo() thường vẫn trả về vị trí CŨ (trước khi seek), khiến
+  // SYNC_SEEK gửi đi sai vị trí và user khác không tua theo đúng chỗ host
+  // vừa kéo tới. Vẫn giữ getCurrentTime() làm fallback cho các lần gọi cũ
+  // không truyền tham số (không phá vỡ chỗ nào khác đang gọi handleSeek()
+  // không đối số).
+  const handleSeek = (explicitSeconds?: number) => {
+    const src = roomState?.currentSong;
+
+    if (isYoutubeTrack(src)) {
+      const currentTime =
+        explicitSeconds ?? (youtubePlayerRef?.current?.youtube.getCurrentTime() ?? 0);
+      sendWS("SYNC_SEEK", {
+        songId: src || "",
+        progress: currentTime,
+        isPlaying: roomState?.isPlaying ?? true,
+      });
+      return;
+    }
+
     const audio = audioRef.current;
     if (!audio) return;
 
     sendWS("SYNC_SEEK", {
-      songId: roomState?.currentSong || "",
-      progress: audio.currentTime,
+      songId: src || "",
+      progress: explicitSeconds ?? audio.currentTime,
       isPlaying: !audio.paused,
     });
   };
 
-  // Host chọn bài mới từ SongPicker → đổi src, phát, sync toàn phòng
   const playSong = (songSrc: string) => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    youtubePlayerRef?.current?.youtube.pauseVideo();
 
-    // Gửi SYNC_PLAY NGAY (optimistic) trước khi audio.play() resolve.
-    // Lý do: nếu để trong .then() như bản cũ, message khác gửi gần như
-    // đồng thời (vd QUEUE_REQUEST) có thể khiến server broadcast lại
-    // ROOM_STATE với isPlaying:false (state cũ, do server CHƯA nhận
-    // SYNC_PLAY) → client tự gọi syncPause() đè lên audio đang play(),
-    // làm promise play() bị abort ("AbortError") → rơi vào catch() báo
-    // lỗi sai lệch dù file mp3 hoàn toàn hợp lệ.
     sendWS("SYNC_PLAY", {
       songId: songSrc,
       progress: 0,
@@ -374,19 +495,10 @@ export function useRoomSocket({
         : prev
     );
 
-    try {
-      const currentPath = new URL(audio.src).pathname;
-      if (currentPath !== songSrc && !currentPath.endsWith(songSrc)) {
-        audio.src = songSrc;
-        audio.load();
-      }
-    } catch {
-      audio.src = songSrc;
-      audio.load();
-    }
+    lastAppliedRef.current = { src: songSrc, isPlaying: true };
 
-    audio.play().catch(() => {
-      alert("Không phát được bài này. Kiểm tra file mp3.");
+    void activateAudio(songSrc, 0, true).then((ok) => {
+      if (!ok) alert("Không phát được bài này. Kiểm tra file mp3.");
     });
   };
 
@@ -413,13 +525,11 @@ export function useRoomSocket({
     setJoinRequests((prev) => prev.filter((req) => req.userId !== targetUserId));
   };
 
-  // Bản thân rời phòng — phòng vẫn tồn tại cho người khác
   const leaveRoom = () => {
     sendWS("LEAVE_ROOM", { userId: userIdRef.current });
     socketRef.current?.close();
   };
 
-  // Host kết thúc phòng — đóng cả phòng cho tất cả
   const endRoom = () => {
     sendWS("END_ROOM", { userId: userIdRef.current });
     socketRef.current?.close();
@@ -434,6 +544,7 @@ export function useRoomSocket({
     thumbnail?: string;
     duration?: number;
     songSrc?: string;
+    source?: SongSource;
   }) => {
     sendWS("QUEUE_REQUEST", song);
   };
@@ -445,6 +556,22 @@ export function useRoomSocket({
   const removeFromQueue = (id: string) => sendWS("QUEUE_REMOVE", { id });
 
   const clearPendingQueue = () => sendWS("QUEUE_CLEAR_PENDING", {});
+
+  // ── Room settings / quyền ────────────────────────────────────────────────────
+
+  const updatePermissions = (permissions: RoomPermissions) => {
+    sendWS("PERMISSIONS_UPDATE", permissions);
+  };
+
+  // ── Shuffle / Repeat / Like ──────────────────────────────────────────────────
+
+  const toggleShuffle = () => sendWS("SHUFFLE_TOGGLE", {});
+
+  const setRepeatMode = (mode: "off" | "one" | "all") => {
+    sendWS("REPEAT_MODE_UPDATE", { mode });
+  };
+
+  const toggleLike = () => sendWS("SONG_LIKE_TOGGLE", {});
 
   // ── Next / Prev ──────────────────────────────────────────────────────────────
 
@@ -483,6 +610,12 @@ export function useRoomSocket({
     rejectSong,
     removeFromQueue,
     clearPendingQueue,
+    // Room settings
+    updatePermissions,
+    // Shuffle / Repeat / Like
+    toggleShuffle,
+    setRepeatMode,
+    toggleLike,
     // Player Next/Prev
     playerNext,
     playerPrev,

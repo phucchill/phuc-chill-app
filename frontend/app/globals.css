@@ -1,26 +1,157 @@
 @import "tailwindcss";
 
+/* ============================================================
+   MUSIC ROOM — Apple Music Design Tokens
+   Chỉ đổi giao diện — không có logic ở đây.
+   Tailwind v4: khai báo token bằng CSS (@theme), không dùng
+   tailwind.config.*. Mọi biến --color, --font, --radius bên
+   dưới tự động sinh ra utility class tương ứng (bg-*, text-*,
+   border-*, font-*, rounded-*).
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #1f1f1f;
+  --key-color: #e24154;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* ── Màu nền / bề mặt ── */
+  --color-background: #1f1f1f;
+  --color-surface: #252525;
+  --color-surface-hover: #2d2d2d;
+  --color-surface-strong: #2a2a2a;
+
+  /* ── Viền / divider ── */
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-divider: rgba(255, 255, 255, 0.05);
+
+  /* ── Màu chủ đạo ── */
+  --color-key: #e24154;
+  --color-key-hover: #eb5064;
+  --color-key-soft: rgba(226, 65, 84, 0.14);
+  --color-key-border: rgba(226, 65, 84, 0.35);
+
+  /* ── Chữ ── */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #b8b8b8;
+  --color-text-muted: #7a7a7a;
+
+  /* ── Font ── */
+  /* Không dùng Cormorant/Geist nữa — toàn bộ project dùng font-sans,
+     đổi biến này là toàn bộ className="font-sans" đang có sẵn khắp
+     các component tự động chuyển sang phong cách Apple mà không cần
+     sửa từng file. font-serif cũng trỏ về cùng stack — Apple Music
+     không dùng chữ serif, chỉ khác độ đậm. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-serif: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* ── Bo góc ── */
+  --radius-card: 20px;
+  --radius-input: 14px;
+  --radius-button: 14px;
+  --radius-avatar: 9999px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Focus ring đồng bộ theo màu chủ đạo, không dùng outline mặc định
+   của trình duyệt (thường là xanh) */
+:focus-visible {
+  outline: 2px solid var(--color-key);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   Glass card — dùng cho mọi Card/Panel theo brief "Glass Effect"
+   ============================================================ */
+@utility glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* ============================================================
+   Scrollbar — mỏng, ẩn khi không hover, phong cách Apple
+   ============================================================ */
+@utility apple-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.apple-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.apple-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.apple-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.apple-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.apple-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+/* ============================================================
+   Reset input[type=range] — nền cho components/ui/Slider.tsx
+   (Slider tự vẽ track/fill bằng div, chỉ dùng input range làm
+   lớp hit-area vô hình để giữ hành vi kéo-thả/accessibility chuẩn)
+   ============================================================ */
+input[type="range"].apple-range-reset {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"].apple-range-reset::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0;
+  height: 0;
+}
+
+input[type="range"].apple-range-reset::-moz-range-thumb {
+  width: 0;
+  height: 0;
+  border: none;
+}
+
+input[type="range"].apple-range-reset::-moz-range-track {
+  background: transparent;
+}
+
+/* Giảm animation cho người dùng bật "reduce motion" ở hệ điều hành */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

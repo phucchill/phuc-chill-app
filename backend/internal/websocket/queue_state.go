@@ -1,5 +1,7 @@
 package websocket
 
+import "math/rand"
+
 // QueueSong đại diện 1 bài hát trong "Danh sách chờ" của Music Room.
 // Đây là tính năng riêng của Music Room, KHÔNG liên quan tới hàng chờ
 // mic/bài hát của chế độ KTV (xem ktv_state.go, message SONG_QUEUE_*).
@@ -11,6 +13,17 @@ type QueueSong struct {
 	Duration    float64 `json:"duration,omitempty"`
 	Status      string  `json:"status"` // "pending" | "queued"
 	RequestedBy string  `json:"requestedBy,omitempty"`
+
+	// RequestedByName là tên hiển thị của người request, được server tự
+	// điền từ Client.UserName tại thời điểm QUEUE_REQUEST (xem
+	// queue_handler.go) — KHÔNG nhận từ payload client gửi lên, để tránh
+	// giả mạo tên người khác.
+	RequestedByName string `json:"requestedByName,omitempty"`
+
+	// Source: "library" (từ thư viện có sẵn) | "upload" (file tải lên) |
+	// "youtube" (link YouTube). Rỗng ("") được coi tương đương "library"
+	// để tương thích ngược với dữ liệu cũ.
+	Source string `json:"source,omitempty"`
 
 	// SongUrl là đường dẫn file mp3 thật (khớp với Room.CurrentSong).
 	// Dùng để: (1) chặn request trùng bài đang phát, (2) biết file nào
@@ -41,8 +54,8 @@ func (q *QueueState) List() []QueueSong {
 }
 
 // AddQueued thêm 1 bài đã ở trạng thái "queued" — dùng khi HOST tự thêm,
-// bỏ qua bước duyệt. Vì luôn append vào cuối, thứ tự tự nhiên = thứ tự
-// host thêm (tương đương "thứ tự duyệt" vì host thêm = duyệt ngay).
+// bỏ qua bước duyệt, hoặc khi member thêm bài mà "Auto approve uploads"
+// đang bật. Vì luôn append vào cuối, thứ tự tự nhiên = thứ tự thêm.
 func (q *QueueState) AddQueued(song QueueSong) {
 	song.Status = "queued"
 	q.Songs = append(q.Songs, song)
@@ -128,6 +141,35 @@ func (q *QueueState) PopNextQueued() (QueueSong, bool) {
 		}
 	}
 	return QueueSong{}, false
+}
+
+// PopRandomQueued chọn NGẪU NHIÊN 1 bài đang "queued" và xóa khỏi Songs —
+// dùng khi Shuffle đang bật thay cho PopNextQueued. CHỦ Ý không xáo trộn
+// thứ tự hiển thị của các bài còn lại trong Songs (để UI hàng chờ không bị
+// đảo lộn liên tục), chỉ đổi CÁCH CHỌN bài kế tiếp.
+func (q *QueueState) PopRandomQueued() (QueueSong, bool) {
+	indices := make([]int, 0, len(q.Songs))
+	for i, s := range q.Songs {
+		if s.Status == "queued" {
+			indices = append(indices, i)
+		}
+	}
+	if len(indices) == 0 {
+		return QueueSong{}, false
+	}
+
+	pick := indices[rand.Intn(len(indices))]
+	song := q.Songs[pick]
+	q.Songs = append(q.Songs[:pick], q.Songs[pick+1:]...)
+	return song, true
+}
+
+// PushBackQueued đưa 1 bài trở lại CUỐI hàng chờ ở trạng thái "queued" —
+// dùng cho Repeat "all": bài vừa phát xong quay lại cuối hàng chờ thay vì
+// bị xóa hẳn/đẩy vào History, tạo vòng lặp vô hạn qua toàn bộ queue.
+func (q *QueueState) PushBackQueued(song QueueSong) {
+	song.Status = "queued"
+	q.Songs = append(q.Songs, song)
 }
 
 // PushFrontQueued đưa 1 bài trở lại ĐẦU hàng chờ ở trạng thái "queued".

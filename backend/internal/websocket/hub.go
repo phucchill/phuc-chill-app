@@ -14,13 +14,14 @@ import (
 const maxRoomUsers = 10
 
 var hostOnlyMessages = map[string]bool{
-	"SYNC_PLAY":     true,
-	"SYNC_PAUSE":    true,
-	"SYNC_SEEK":     true,
-	"SYNC_PROGRESS": true,
-	"JOIN_APPROVE":  true,
-	"JOIN_REJECT":   true,
-	"END_ROOM":      true,
+	"SYNC_PLAY":          true,
+	"SYNC_PAUSE":         true,
+	"SYNC_SEEK":          true,
+	"SYNC_PROGRESS":      true,
+	"JOIN_APPROVE":       true,
+	"JOIN_REJECT":        true,
+	"END_ROOM":           true,
+	"PERMISSIONS_UPDATE": true,
 }
 
 type Message struct {
@@ -61,6 +62,12 @@ type Room struct {
 	KTV           *KTVState
 	Queue         *QueueState
 
+	// Permissions cấu hình quyền thêm bài hát (Search/Upload/YouTube) —
+	// Host chỉnh trong Room Settings qua message PERMISSIONS_UPDATE.
+	// Được khởi tạo mặc định (model.DefaultRoomPermissions()) khi phòng
+	// vừa tạo, hiện CHƯA được persist qua Mongo (xem models/room.go).
+	Permissions model.RoomPermissions
+
 	// CurrentQueueSong lưu metadata (title/artist/thumbnail/songSrc) của
 	// bài đang phát, NẾU bài đó tới từ Danh sách chờ (Next/Prev/duyệt).
 	// nil nếu host chọn bài trực tiếp từ SongPicker qua SYNC_PLAY (không
@@ -69,6 +76,22 @@ type Room struct {
 
 	// LastRequestAt chống spam: userID -> thời điểm request bài gần nhất.
 	LastRequestAt map[string]time.Time
+
+	// ShuffleEnabled/RepeatMode/CurrentSongLiked — điều khiển CÁCH PHÁT
+	// nhạc (xem playback_handler.go). Chỉ sống trong bộ nhớ Hub, giống
+	// Permissions, KHÔNG persist Mongo.
+	//   ShuffleEnabled: true thì PLAYER_NEXT chọn ngẫu nhiên bài "queued"
+	//     thay vì lấy bài đầu hàng chờ. Chỉ Host bật/tắt được.
+	//   RepeatMode: "off" | "one" | "all". "one" lặp lại đúng bài đang
+	//     phát mỗi khi Next/Prev/hết bài. "all" đẩy bài vừa phát xong về
+	//     cuối hàng chờ thay vì xóa hẳn, tạo vòng lặp vô hạn qua queue.
+	//     Chỉ Host đổi được.
+	//   CurrentSongLiked: like dùng CHUNG cho cả phòng, áp dụng cho bài
+	//     đang phát — ai cũng bấm được, tự reset về false mỗi khi bài đổi
+	//     (Next/Prev/host chọn bài mới từ SongPicker).
+	ShuffleEnabled   bool
+	RepeatMode       string
+	CurrentSongLiked bool
 }
 
 func (r *Room) CurrentProgress() float64 {
@@ -132,6 +155,16 @@ type RoomState struct {
 	MicRequests  []model.MicRequest `json:"micRequests"`
 
 	QueueSongs []QueueSong `json:"queueSongs"`
+
+	// Quyền phòng hiện tại — frontend dùng để gate UI (AddSongDialog,
+	// RoomSettingsDialog). Luôn có giá trị (không nil) vì Permissions là
+	// struct value, không phải pointer.
+	Permissions model.RoomPermissions `json:"permissions"`
+
+	// Điều khiển cách phát nhạc — xem ghi chú ở field tương ứng trên Room.
+	ShuffleEnabled   bool   `json:"shuffleEnabled"`
+	RepeatMode       string `json:"repeatMode"`
+	CurrentSongLiked bool   `json:"currentSongLiked"`
 }
 
 type Hub struct {
@@ -142,7 +175,16 @@ type Hub struct {
 	MessageRepo *repository.MessageRepo
 	RoomRepo    *repository.RoomRepo
 	KTVRepo     *repository.KTVRepo
-	mu          sync.RWMutex
+
+	// UploadDir/UploadPublicPath: set từ main.go NGAY SAU khi gọi NewHub
+	// (hub.UploadDir = ...). Dùng ở queue_handler.go để xóa NGAY file
+	// upload khi host chủ động xóa/từ chối khỏi hàng chờ — xem ghi chú
+	// đầy đủ trong handlers/upload_handler.go. Để trống ("") thì bỏ qua
+	// bước xóa sớm này, chỉ còn lưới an toàn là sweeper dọn theo tuổi file.
+	UploadDir        string
+	UploadPublicPath string
+
+	mu sync.RWMutex
 }
 
 func NewHub(
@@ -180,6 +222,7 @@ func (h *Hub) handleRegister(client *Client) {
 	var dbRoomType string
 	var dbPrivacy string
 	var dbHostID string
+	var dbPermissions model.RoomPermissions
 	var hasSavedRoom bool
 
 	if h.RoomRepo != nil {
@@ -191,6 +234,7 @@ func (h *Hub) handleRegister(client *Client) {
 			dbRoomType = defaultRoomType(record.RoomType)
 			dbPrivacy = defaultPrivacy(record.Privacy)
 			dbHostID = record.HostID
+			dbPermissions = record.Permissions
 			hasSavedRoom = true
 		}
 	}
@@ -202,11 +246,20 @@ func (h *Hub) handleRegister(client *Client) {
 		roomType := defaultRoomType(client.RoomType)
 		privacy := defaultPrivacy(client.Privacy)
 		hostID := client.UserID
+		permissions := model.DefaultRoomPermissions()
 
 		if hasSavedRoom {
 			roomType = dbRoomType
 			privacy = dbPrivacy
 			hostID = dbHostID
+
+			// Chỉ tin dbPermissions nếu nó KHÔNG phải zero-value — tài liệu
+			// Mongo được tạo trước khi tính năng permissions tồn tại sẽ
+			// giải mã field "permissions" thành zero-value (tất cả false),
+			// dùng thẳng sẽ vô tình khóa hết quyền của member.
+			if !dbPermissions.IsZero() {
+				permissions = dbPermissions
+			}
 		}
 
 		room = &Room{
@@ -229,8 +282,12 @@ func (h *Hub) handleRegister(client *Client) {
 			CloseTimer:       nil,
 			KTV:              &KTVState{},
 			Queue:            &QueueState{},
+			Permissions:      permissions,
 			CurrentQueueSong: nil,
 			LastRequestAt:    make(map[string]time.Time),
+			ShuffleEnabled:   false,
+			RepeatMode:       "off",
+			CurrentSongLiked: false,
 		}
 
 		h.Rooms[client.RoomID] = room
@@ -364,6 +421,12 @@ func (h *Hub) handleBroadcast(msg Message) {
 		return
 	}
 
+	if IsPlaybackMessage(msg.Type) {
+		h.mu.Unlock()
+		h.handlePlaybackMessage(room, msg)
+		return
+	}
+
 	if hostOnlyMessages[msg.Type] && !room.isHost(msg.SenderID) {
 		h.sendErrorLocked(room, msg.SenderID, "Chỉ host mới được thực hiện thao tác này")
 		h.mu.Unlock()
@@ -397,9 +460,31 @@ func (h *Hub) handleBroadcast(msg Message) {
 	case "END_ROOM":
 		// Quyền đã được kiểm tra ở hostOnlyMessages — xử lý thật sau unlock
 
+	case "PERMISSIONS_UPDATE":
+		// Quyền đã được kiểm tra ở hostOnlyMessages (chỉ host mới tới được đây).
+		var p model.RoomPermissions
+		if json.Unmarshal(msg.Payload, &p) == nil {
+			room.Permissions = p
+
+			if h.RoomRepo != nil {
+				go func(roomID string, permissions model.RoomPermissions) {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := h.RoomRepo.UpdatePermissions(ctx, roomID, permissions); err != nil {
+						log.Printf("[Hub] Lưu Permissions phòng %s lỗi: %v", roomID, err)
+					}
+				}(room.ID, p)
+			}
+		}
+
 	case "SYNC_PLAY":
 		var p SyncPayload
 		if json.Unmarshal(msg.Payload, &p) == nil {
+			if room.CurrentSong != p.SongID {
+				// Bài đổi thật sự (không phải resync cùng 1 bài) — reset
+				// like, vì like gắn với bài đang phát, không phải phòng.
+				room.CurrentSongLiked = false
+			}
 			room.CurrentSong = p.SongID
 			room.Progress = p.Progress
 			room.LastUpdated = time.Now()
@@ -444,6 +529,11 @@ func (h *Hub) handleBroadcast(msg Message) {
 	}
 
 	if msg.Type == "JOIN_APPROVE" || msg.Type == "JOIN_REJECT" {
+		h.broadcastRoomState(msg.RoomID)
+		return
+	}
+
+	if msg.Type == "PERMISSIONS_UPDATE" {
 		h.broadcastRoomState(msg.RoomID)
 		return
 	}
@@ -535,7 +625,12 @@ func (h *Hub) sendRoomStateToClient(room *Room, client *Client) {
 		ActiveMicUID: room.KTV.ActiveMicUID,
 		MicRequests:  room.KTV.GetMicRequests(),
 
-		QueueSongs: room.QueueSongs(),
+		QueueSongs:  room.QueueSongs(),
+		Permissions: room.Permissions,
+
+		ShuffleEnabled:   room.ShuffleEnabled,
+		RepeatMode:       room.RepeatMode,
+		CurrentSongLiked: room.CurrentSongLiked,
 	}
 
 	msg := Message{
@@ -717,7 +812,12 @@ func (h *Hub) broadcastRoomState(roomID string) {
 		ActiveMicUID: room.KTV.ActiveMicUID,
 		MicRequests:  room.KTV.GetMicRequests(),
 
-		QueueSongs: room.QueueSongs(),
+		QueueSongs:  room.QueueSongs(),
+		Permissions: room.Permissions,
+
+		ShuffleEnabled:   room.ShuffleEnabled,
+		RepeatMode:       room.RepeatMode,
+		CurrentSongLiked: room.CurrentSongLiked,
 	}
 
 	h.mu.RUnlock()

@@ -1,5 +1,7 @@
 "use client";
 
+import { motion } from "framer-motion";
+import { Crown } from "lucide-react";
 import { Participant } from "../types/websocket";
 
 interface MemberListProps {
@@ -8,44 +10,48 @@ interface MemberListProps {
 
 export default function MemberList({ participants }: MemberListProps) {
   return (
-    <aside className="flex h-[480px] flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#111113]">
+    <aside className="glass-card flex h-[420px] flex-col overflow-hidden rounded-card bg-surface/60">
       {/* Header (cố định, không scroll) */}
-      <div className="flex-shrink-0 px-4 pb-4 pt-6">
-        <div className="mb-1 flex items-center gap-2.5">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-white/60" />
-          <span className="font-serif text-sm uppercase tracking-[0.15em] text-white/40">
+      <div className="flex-shrink-0 px-4 pb-4 pt-5">
+        <div className="mb-1 flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-key opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-key" />
+          </span>
+          <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-secondary">
             Thành viên
           </span>
         </div>
-        <p className="m-0 font-serif text-[28px] font-bold leading-none text-white">
+        <p className="m-0 text-[26px] font-semibold leading-none text-text-primary">
           {participants.length}
-          <span className="ml-1.5 text-[13px] font-normal tracking-[0.05em] text-white/30">
-            online
-          </span>
+          <span className="ml-1.5 text-[13px] font-normal text-text-muted">online</span>
         </p>
 
-        {/* Divider */}
-        <div className="mt-5 h-px bg-white/10" />
+        <div className="mt-4 h-px bg-divider" />
       </div>
 
-      {/* Danh sách thành viên — vùng duy nhất được scroll, khung ngoài luôn giữ nguyên kích thước */}
-      <div className="memberScroll flex flex-1 flex-col gap-2.5 overflow-y-auto px-4 pb-4">
+      {/* Danh sách thành viên — vùng duy nhất được scroll */}
+      <div className="apple-scroll flex flex-1 flex-col gap-1.5 overflow-y-auto px-3 pb-4">
         {participants.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center text-center font-sans text-[13px] text-white/20">
+          <div className="flex flex-1 items-center justify-center text-center text-[13px] text-text-muted">
             Chưa có thành viên
           </div>
         ) : (
           participants.map((p) => (
-            <div
+            <motion.div
               key={p.id}
-              className={`flex flex-shrink-0 cursor-default items-center gap-3 rounded-xl border px-3 py-2.5 ${
-                p.isHost ? "border-white/15 bg-white/[0.06]" : "border-white/5 bg-white/[0.03]"
+              layout
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.15 }}
+              className={`flex flex-shrink-0 cursor-default items-center gap-3 rounded-input px-3 py-2.5 transition-colors ${
+                p.isHost ? "bg-key-soft" : "hover:bg-white/[0.03]"
               }`}
             >
               {/* Avatar */}
               <div
-                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full font-serif text-sm font-bold ${
-                  p.isHost ? "bg-white text-black" : "bg-white/10 text-white"
+                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-avatar text-sm font-semibold ${
+                  p.isHost ? "bg-key text-white" : "bg-surface-strong text-text-secondary"
                 }`}
               >
                 {p.name.charAt(0).toUpperCase()}
@@ -53,42 +59,26 @@ export default function MemberList({ participants }: MemberListProps) {
 
               <div className="flex-1 overflow-hidden">
                 <p
-                  className={`m-0 truncate font-sans text-[13px] font-medium ${
-                    p.isHost ? "text-white/95" : "text-white/70"
+                  className={`m-0 truncate text-[13px] font-medium ${
+                    p.isHost ? "text-text-primary" : "text-text-secondary"
                   }`}
                 >
                   {p.name}
                 </p>
                 {p.isHost && (
-                  <span className="font-sans text-[10px] uppercase tracking-[0.08em] text-white/50">
+                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-[0.06em] text-key">
+                    <Crown size={10} fill="currentColor" strokeWidth={0} />
                     Host
                   </span>
                 )}
               </div>
 
               {/* Online indicator */}
-              <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-500" />
-            </div>
+              <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-key" />
+            </motion.div>
           ))
         )}
       </div>
-
-      <style>{`
-        .memberScroll::-webkit-scrollbar {
-          width: 6px;
-        }
-        .memberScroll::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .memberScroll::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.15);
-          border-radius: 999px;
-        }
-        .memberScroll {
-          scrollbar-width: thin;
-          scrollbar-color: rgba(255,255,255,0.15) transparent;
-        }
-      `}</style>
     </aside>
   );
 }

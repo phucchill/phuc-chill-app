@@ -1,12 +1,39 @@
 "use client";
 
-import { RefObject, useEffect, useRef, useState } from "react";
+import {
+  RefObject,
+  forwardRef,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import { motion } from "framer-motion";
+import {
+  Heart,
+  Pause,
+  Play,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Volume1,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import { isValidYoutubeUrl } from "../lib/youtube";
+import type { YoutubePlayerHandle, YTPlayerInstance } from "../types/youtubePlayer";
+import Slider from "../components/ui/Slider";
+
+type RepeatMode = "off" | "one" | "all";
 
 interface MusicPlayerProps {
   audioRef: RefObject<HTMLAudioElement | null>;
   roomId: string;
   isHost: boolean;
-  currentSong: string;       // đường dẫn file mp3
+  currentSong: string;       // đường dẫn file mp3 HOẶC link YouTube
   songTitle?: string;        // tên bài (từ musicAPI)
   songArtist?: string;       // ca sĩ (từ musicAPI)
   songAvatar?: string;       // ảnh bìa (từ musicAPI)
@@ -14,42 +41,321 @@ interface MusicPlayerProps {
   needsInteraction: boolean;
   onPlay: () => void;
   onPause: () => void;
-  onSeek: () => void;
+  onSeek: (seconds?: number) => void;
   onInteract: () => void;
   onNext?: () => void;
   onPrev?: () => void;
+
+  shuffleEnabled?: boolean;
+  repeatMode?: RepeatMode;
+  isLiked?: boolean;
+  onToggleShuffle?: () => void;
+  onCycleRepeat?: () => void;
+  onToggleLike?: () => void;
 }
 
-export default function MusicPlayer({
-  audioRef,
-  roomId,
-  isHost,
-  currentSong,
-  songTitle,
-  songArtist,
-  songAvatar,
-  isPlaying,
-  needsInteraction,
-  onPlay,
-  onPause,
-  onSeek,
-  onInteract,
-  onNext,
-  onPrev,
-}: MusicPlayerProps) {
+function lockYoutubeIframe(iframe: HTMLIFrameElement | null | undefined) {
+  if (!iframe) return;
+  iframe.setAttribute("tabindex", "-1");
+  iframe.style.position = "fixed";
+  iframe.style.top = "-9999px";
+  iframe.style.left = "-9999px";
+  iframe.style.width = "320px";
+  iframe.style.height = "180px";
+  iframe.style.pointerEvents = "none";
+  iframe.style.opacity = "0";
+}
+
+// CSS !important LUÔN thắng inline style KHÔNG có !important — kể cả khi
+// script nội bộ của YouTube tự ghi đè iframe.style (đúng lúc loadVideoById
+// chạy, gây hiệu ứng "phóng to" 1 nhịp trước khi onStateChange kịp bắn).
+// Đây là lớp khóa CHẮC CHẮN, lockYoutubeIframe() ở trên chỉ là lớp dự
+// phòng bổ sung, không phải lớp khóa chính nữa.
+function injectYoutubeLockStyle(containerId: string) {
+  if (typeof document === "undefined") return;
+  const styleId = `yt-lock-${containerId}`;
+  if (document.getElementById(styleId)) return;
+  const style = document.createElement("style");
+  style.id = styleId;
+  style.textContent = `
+    #${containerId} {
+      position: fixed !important;
+      top: -9999px !important;
+      left: -9999px !important;
+      width: 320px !important;
+      height: 180px !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      z-index: -1 !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+const MusicPlayer = forwardRef<YoutubePlayerHandle, MusicPlayerProps>(function MusicPlayer(
+  {
+    audioRef,
+    roomId,
+    isHost,
+    currentSong,
+    songTitle,
+    songArtist,
+    songAvatar,
+    isPlaying,
+    needsInteraction,
+    onPlay,
+    onPause,
+    onSeek,
+    onInteract,
+    onNext,
+    onPrev,
+    shuffleEnabled = false,
+    repeatMode = "off",
+    isLiked = false,
+    onToggleShuffle,
+    onCycleRepeat,
+    onToggleLike,
+  },
+  ref
+) {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [isDragging, setIsDragging] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
-  const progressBarRef = useRef<HTMLDivElement>(null);
+  const [ytReady, setYtReady] = useState(false);
 
-  // Reset lỗi ảnh khi bài đổi
+  const isYoutube = isValidYoutubeUrl(currentSong);
+
+  // useId() thay vì Math.random(): giá trị này PHẢI giống hệt nhau giữa
+  // lần render trên server (SSR) và lần hydrate đầu tiên trên client, nếu
+  // không React sẽ báo lỗi "hydration mismatch" (đúng lỗi console bạn gặp)
+  // vì id trên HTML server-rendered khác id client tự sinh lại. useId()
+  // được React đảm bảo ổn định qua SSR/hydrate. Bỏ dấu ":" vì useId() trả
+  // về dạng ":r0:" — ký tự ":" không hợp lệ khi dùng làm CSS selector thô
+  // (injectYoutubeLockStyle() bên dưới cần "#id { ... }").
+  const reactId = useId().replace(/:/g, "");
+  const youtubeContainerIdRef = useRef(`yt-player-${reactId}`);
+  const ytPlayerRef = useRef<YTPlayerInstance | null>(null);
+  const ytReadyRef = useRef(false);
+  const currentVideoIdRef = useRef<string | null>(null);
+  const volumeRef = useRef(volume);
+  const pendingSyncRef = useRef<{ videoId: string; startSeconds: number } | null>(null);
+
+  useEffect(() => {
+    volumeRef.current = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const createPlayer = () => {
+      if (!window.YT || ytPlayerRef.current) return;
+      injectYoutubeLockStyle(youtubeContainerIdRef.current);
+      ytPlayerRef.current = new window.YT.Player(youtubeContainerIdRef.current, {
+        width: "320",
+        height: "180",
+        playerVars: {
+          controls: 0,
+          disablekb: 1,
+          modestbranding: 1,
+          rel: 0,
+          fs: 0,
+          playsinline: 1,
+          iv_load_policy: 3,
+        },
+        events: {
+          onReady: (e: any) => {
+            ytReadyRef.current = true;
+            setYtReady(true);
+            try {
+              lockYoutubeIframe(e?.target?.getIframe?.());
+              ytPlayerRef.current?.setVolume(Math.round(volumeRef.current * 100));
+              // Nếu playVideo() bị gọi trước khi player sẵn sàng (do
+              // ReadyState race), áp dụng lại lệnh play/video đang chờ.
+              if (pendingSyncRef.current) {
+                const { videoId, startSeconds } = pendingSyncRef.current;
+                pendingSyncRef.current = null;
+                currentVideoIdRef.current = videoId;
+                const restoreVolume = Math.round(volumeRef.current * 100);
+                try {
+                  ytPlayerRef.current?.mute();
+                } catch {
+                  /* ignore */
+                }
+                ytPlayerRef.current?.loadVideoById(videoId, startSeconds);
+                ytPlayerRef.current?.playVideo();
+                setTimeout(() => {
+                  try {
+                    ytPlayerRef.current?.unMute();
+                    ytPlayerRef.current?.setVolume(restoreVolume);
+                  } catch {
+                    /* ignore */
+                  }
+                }, 350);
+              }
+            } catch {
+              /* ignore */
+            }
+          },
+          onStateChange: (e: any) => {
+            try {
+              lockYoutubeIframe(e?.target?.getIframe?.());
+            } catch {
+              /* ignore */
+            }
+          },
+        },
+      });
+    };
+
+    if (window.YT && window.YT.Player) {
+      createPlayer();
+      return;
+    }
+
+    if (!document.getElementById("youtube-iframe-api")) {
+      const script = document.createElement("script");
+      script.id = "youtube-iframe-api";
+      script.src = "https://www.youtube.com/iframe_api";
+      document.body.appendChild(script);
+    }
+
+    const prevReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      prevReady?.();
+      createPlayer();
+    };
+
+    return () => {
+      ytPlayerRef.current?.destroy?.();
+      ytPlayerRef.current = null;
+      ytReadyRef.current = false;
+      setYtReady(false);
+      currentVideoIdRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      youtube: {
+        isReady: () => ytReadyRef.current && !!ytPlayerRef.current,
+        playVideo: (videoId, startSeconds = 0) => {
+          const player = ytPlayerRef.current;
+          if (!player || !ytReadyRef.current) {
+            // Player chưa sẵn sàng — lưu lại lệnh, onReady sẽ áp dụng khi
+            // player khởi tạo xong. Trước đây lệnh này bị NUỐT MẤT nếu
+            // đến sớm hơn onReady, khiến user vào phòng trễ hoặc bị đổi
+            // bài trong lúc player đang khởi tạo sẽ KHÔNG đồng bộ.
+            pendingSyncRef.current = { videoId, startSeconds };
+            return;
+          }
+          try {
+            // MUTE-TRICK: iframe YouTube là 1 origin/browsing-context khác
+            // (youtube.com). Cú click "Bấm để nghe cùng" của user chỉ cấp
+            // quyền autoplay cho ĐÚNG lần gọi playVideo() đó — mọi lần gọi
+            // SAU (khi host bấm Next/Prev, ROOM_STATE tự đẩy xuống) KHÔNG
+            // gắn với thao tác chuột/tay nào của user trên trang → trình
+            // duyệt ÂM THẦM CHẶN autoplay có tiếng bên trong iframe, không
+            // báo lỗi gì, đây chính là lý do "user không đồng bộ". Autoplay
+            // Ở CHẾ ĐỘ TẮT TIẾNG luôn được trình duyệt cho phép vô điều
+            // kiện, nên: mute → play → unmute lại sau khi đã bắt đầu phát.
+            const restoreVolume = Math.round(volumeRef.current * 100);
+            try {
+              player.mute();
+            } catch {
+              /* ignore */
+            }
+
+            if (currentVideoIdRef.current === videoId) {
+              const current = player.getCurrentTime();
+              if (Math.abs(current - startSeconds) > 2) {
+                player.seekTo(startSeconds, true);
+              }
+              player.playVideo();
+            } else {
+              currentVideoIdRef.current = videoId;
+              player.loadVideoById(videoId, startSeconds);
+              player.playVideo();
+            }
+
+            setTimeout(() => {
+              try {
+                ytPlayerRef.current?.unMute();
+                ytPlayerRef.current?.setVolume(restoreVolume);
+              } catch {
+                /* ignore */
+              }
+            }, 350);
+          } catch {
+            pendingSyncRef.current = { videoId, startSeconds };
+          }
+        },
+        pauseVideo: () => {
+          try {
+            ytPlayerRef.current?.pauseVideo();
+          } catch {
+            /* ignore */
+          }
+        },
+        seekTo: (seconds) => {
+          try {
+            ytPlayerRef.current?.seekTo(seconds, true);
+          } catch {
+            /* ignore */
+          }
+        },
+        getCurrentTime: () => {
+          try {
+            return ytPlayerRef.current?.getCurrentTime() ?? 0;
+          } catch {
+            return 0;
+          }
+        },
+        getDuration: () => {
+          try {
+            return ytPlayerRef.current?.getDuration() ?? 0;
+          } catch {
+            return 0;
+          }
+        },
+        setVolume: (volumePercent) => {
+          try {
+            ytPlayerRef.current?.setVolume(volumePercent);
+          } catch {
+            /* ignore */
+          }
+        },
+      },
+    }),
+    []
+  );
+
+  useEffect(() => {
+    if (!isYoutube) return;
+
+    const interval = setInterval(() => {
+      if (!ytReadyRef.current || isDragging) return;
+      try {
+        setProgress(ytPlayerRef.current?.getCurrentTime() ?? 0);
+        const d = ytPlayerRef.current?.getDuration() ?? 0;
+        if (d) setDuration(d);
+      } catch {
+        /* ignore */
+      }
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [isYoutube, isDragging]);
+
   useEffect(() => {
     setAvatarError(false);
   }, [songAvatar]);
 
   useEffect(() => {
+    if (isYoutube) return;
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -65,13 +371,25 @@ export default function MusicPlayer({
       audio.removeEventListener("timeupdate", updateProgress);
       audio.removeEventListener("loadedmetadata", updateDuration);
     };
-  }, [isDragging]);
+  }, [isDragging, isYoutube]);
 
+  // Áp dụng volume cho ĐÚNG player đang active. Chạy lại khi ytReady đổi
+  // (trước đây chỉ phụ thuộc [volume, isYoutube] nên nếu người dùng kéo
+  // volume TRƯỚC KHI player YouTube sẵn sàng, giá trị đó không bao giờ
+  // được áp dụng lại sau khi player ready — nút âm lượng "không có tác
+  // dụng" y như báo cáo).
   useEffect(() => {
-    if (audioRef.current) {
+    if (isYoutube) {
+      if (!ytReady) return;
+      try {
+        ytPlayerRef.current?.setVolume(Math.round(volume * 100));
+      } catch {
+        /* ignore */
+      }
+    } else if (audioRef.current) {
       audioRef.current.volume = volume;
     }
-  }, [volume]);
+  }, [volume, isYoutube, ytReady]);
 
   const formatTime = (s: number) => {
     if (!s || isNaN(s)) return "0:00";
@@ -80,65 +398,104 @@ export default function MusicPlayer({
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isHost || !audioRef.current || !progressBarRef.current) return;
-    const rect = progressBarRef.current.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audioRef.current.currentTime = ratio * duration;
-    setProgress(ratio * duration);
-    onSeek();
+  const handleProgressChange = (val: number) => {
+    if (!isHost) return;
+    setIsDragging(true);
+    setProgress(val);
   };
 
-  // Tên hiển thị: ưu tiên songTitle, fallback parse từ đường dẫn
+  const handleProgressCommit = (val: number) => {
+    if (!isHost || !duration) return;
+    setIsDragging(false);
+
+    if (isYoutube) {
+      try {
+        ytPlayerRef.current?.seekTo(val, true);
+      } catch {
+        /* ignore */
+      }
+    } else if (audioRef.current) {
+      audioRef.current.currentTime = val;
+    }
+
+    setProgress(val);
+    // Truyền THẲNG val (vị trí user vừa kéo tới) thay vì để onSeek() tự
+    // đọc lại getCurrentTime() từ player. seekTo() của YouTube là BẤT
+    // ĐỒNG BỘ (còn phải buffer) — đọc getCurrentTime() ngay sau đó vẫn
+    // thường trả về vị trí CŨ (trước khi seek), khiến SYNC_SEEK gửi đi
+    // sai vị trí và user khác không tua theo đúng chỗ host vừa kéo tới.
+    onSeek(val);
+  };
+
   const displayTitle =
     songTitle ||
-    (currentSong
+    (currentSong && !isYoutube
       ? currentSong.split("/").pop()?.replace(".mp3", "").replace(/-/g, " ") || "Unknown"
+      : currentSong
+      ? "Đang tải..."
       : "Chưa có bài");
-
-  const progressPercent = duration > 0 ? (progress / duration) * 100 : 0;
 
   const showRealAvatar = songAvatar && !avatarError;
 
+  const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
+
+  const repeatDisabledClass = !isHost ? "cursor-not-allowed opacity-30" : "cursor-pointer opacity-70 hover:opacity-100";
+
   return (
-    <div className="relative overflow-hidden rounded-3xl bg-[#0c0c0e] border border-white/10">
-      {/* Banner autoplay bị block */}
+    <div className="glass-card relative overflow-hidden rounded-card bg-surface/60 px-9 py-8">
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          top: -9999,
+          left: -9999,
+          width: 320,
+          height: 180,
+          overflow: "hidden",
+          pointerEvents: "none",
+          opacity: 0,
+          zIndex: -1,
+        }}
+      >
+        <div id={youtubeContainerIdRef.current} style={{ width: 320, height: 180 }} />
+      </div>
+
       {needsInteraction && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-3xl bg-black/90">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-card bg-black/90 backdrop-blur-md">
           {showRealAvatar && (
             <div
-              className="mb-1 h-14 w-14 rounded-xl bg-cover bg-center"
+              className="mb-1 h-14 w-14 rounded-input bg-cover bg-center"
               style={{ backgroundImage: `url(${songAvatar})` }}
             />
           )}
           {!showRealAvatar && <div className="text-4xl">🎵</div>}
-          <p className="m-0 text-center text-[15px] text-white/80 font-sans">
-            Phòng đang phát nhạc
-          </p>
+          <p className="m-0 text-center text-[15px] text-text-primary/90">Phòng đang phát nhạc</p>
           {songTitle && (
-            <p className="-mt-1 text-[13px] text-white/50 font-sans">
+            <p className="-mt-1 text-[13px] text-text-secondary">
               {songTitle}
               {songArtist ? ` — ${songArtist}` : ""}
             </p>
           )}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.96 }}
             onClick={onInteract}
-            className="mt-1 rounded-full bg-[#ff2d55] px-7 py-3 text-[14px] font-medium text-white font-sans cursor-pointer"
+            className="mt-1 flex items-center gap-2 rounded-full bg-key px-7 py-3 text-[14px] font-medium text-white hover:brightness-110"
           >
+            <Play size={16} fill="white" strokeWidth={0} />
             Bấm để nghe cùng
-          </button>
+          </motion.button>
         </div>
       )}
 
-      <div className="relative px-9 py-8">
-        <div className="flex items-center gap-8">
-          {/* Album Art */}
-          <div className="relative flex-shrink-0">
-            <div
-              className={`h-[140px] w-[140px] overflow-hidden rounded-2xl bg-[#1a1a1c] flex items-center justify-center ${
-                isPlaying ? "animate-[spin-slow_20s_linear_infinite]" : ""
-              }`}
-            >
+      <div className="flex items-center gap-8">
+        <div className="relative flex-shrink-0">
+          <div
+            className={`relative h-[180px] w-[180px] overflow-hidden rounded-card bg-surface-strong shadow-[0_20px_40px_rgba(0,0,0,0.35)] ${
+              isPlaying ? "animate-[spin-slow_24s_linear_infinite]" : ""
+            }`}
+          >
+            <div className="absolute inset-0 flex items-center justify-center">
               {showRealAvatar ? (
                 <img
                   src={songAvatar}
@@ -149,137 +506,134 @@ export default function MusicPlayer({
               ) : (
                 <div className="relative flex h-full w-full items-center justify-center">
                   <div className="absolute inset-0 [background:repeating-radial-gradient(circle_at_center,rgba(255,255,255,0.04)_0px,rgba(255,255,255,0)_2px,rgba(255,255,255,0)_8px,rgba(255,255,255,0.04)_10px)]" />
-                  <div className="z-[1] h-8 w-8 rounded-full border-2 border-white/10 bg-black/60" />
-                  <svg
-                    className="absolute z-[2]"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="rgba(255,255,255,0.35)"
-                  >
-                    <path d="M9 18V5l12-2v13" />
-                    <circle cx="6" cy="18" r="3" />
-                    <circle cx="18" cy="16" r="3" />
-                  </svg>
+                  <div className="z-[1] h-9 w-9 rounded-full border-2 border-white/10 bg-black/60" />
                 </div>
               )}
             </div>
           </div>
+        </div>
 
-          {/* Info & Controls */}
-          <div className="flex flex-1 flex-col gap-4">
-            <div>
-              <div className="mb-1.5 text-[11px] uppercase tracking-[0.12em] text-white/40 font-sans">
-                {isPlaying ? "▶ Đang phát" : "⏸ Đã dừng"} · Phòng {roomId}
-              </div>
-              <h2 className="m-0 mb-1 font-serif text-2xl font-bold capitalize leading-[1.1] text-white">
-                {displayTitle}
-              </h2>
-              {songArtist && (
-                <p className="m-0 text-[13px] text-white/40 font-sans">{songArtist}</p>
-              )}
+        <div className="flex flex-1 flex-col gap-4">
+          <div>
+            <div className="mb-1.5 text-[11px] uppercase tracking-[0.12em] text-text-muted">
+              {isPlaying ? "Đang phát" : "Đã dừng"} · Phòng {roomId}
+              {isYoutube && " · YouTube"}
             </div>
+            <h2 className="m-0 mb-1 truncate text-[26px] font-semibold leading-tight text-text-primary">
+              {displayTitle}
+            </h2>
+            <div className="flex items-center gap-3">
+              {songArtist && <p className="m-0 truncate text-[14px] text-text-secondary">{songArtist}</p>}
 
-            {/* Progress bar */}
-            <div>
-              <div
-                ref={progressBarRef}
-                onClick={handleProgressClick}
-                className={`relative mb-2 h-1 rounded-full bg-white/10 ${
-                  isHost ? "cursor-pointer" : "cursor-default"
+              <motion.button
+                whileTap={{ scale: 0.85 }}
+                onClick={() => onToggleLike?.()}
+                disabled={!currentSong}
+                aria-label={isLiked ? "Bỏ thích" : "Thích bài này"}
+                className={`flex h-6 w-6 items-center justify-center rounded-full transition-colors ${
+                  currentSong ? "cursor-pointer" : "cursor-not-allowed opacity-30"
                 }`}
               >
-                <div
-                  className="relative h-full rounded-full bg-[#ff2d55] shadow-[0_0_20px_rgba(255,45,85,0.5)]"
-                  style={{
-                    width: `${progressPercent}%`,
-                    transition: isDragging ? "none" : "width 0.2s linear",
-                  }}
-                >
-                  <div className="absolute right-[-5px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[#ff2d55] shadow-[0_0_20px_rgba(255,45,85,0.5)]" />
-                </div>
-              </div>
-              <div className="flex justify-between font-sans text-[11px] text-white/30">
-                <span>{formatTime(progress)}</span>
-                <span>{formatTime(duration)}</span>
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center gap-4">
-              <button
-                onClick={onPrev}
-                disabled={!isHost}
-                className={`flex items-center border-none bg-transparent p-0 transition-opacity ${
-                  isHost ? "cursor-pointer opacity-60 hover:opacity-100" : "cursor-not-allowed opacity-20"
-                }`}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                  <path d="M19 20L9 12l10-8v16zM5 4h2v16H5z" />
-                </svg>
-              </button>
-
-              <button
-                onClick={isPlaying ? onPause : onPlay}
-                disabled={!isHost}
-                className={`flex h-[52px] w-[52px] items-center justify-center rounded-full border-none transition-transform hover:scale-[1.08] ${
-                  isHost
-                    ? "cursor-pointer bg-[#ff2d55] shadow-[0_0_20px_rgba(255,45,85,0.5)]"
-                    : "cursor-not-allowed bg-white/10"
-                }`}
-              >
-                {isPlaying ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                    <rect x="6" y="4" width="4" height="16" rx="1" />
-                    <rect x="14" y="4" width="4" height="16" rx="1" />
-                  </svg>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white" className="ml-0.5">
-                    <path d="M5 3l14 9-14 9V3z" />
-                  </svg>
-                )}
-              </button>
-
-              <button
-                onClick={onNext}
-                disabled={!isHost}
-                className={`flex items-center border-none bg-transparent p-0 transition-opacity ${
-                  isHost ? "cursor-pointer opacity-60 hover:opacity-100" : "cursor-not-allowed opacity-20"
-                }`}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                  <path d="M5 4l10 8-10 8V4zm14 0h2v16h-2z" />
-                </svg>
-              </button>
-
-              <div className="ml-auto flex items-center gap-2">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="rgba(255,255,255,0.4)">
-                  <path
-                    d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"
-                    stroke="rgba(255,255,255,0.4)"
-                    strokeWidth="2"
-                    fill="none"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={volume}
-                  onChange={(e) => setVolume(parseFloat(e.target.value))}
-                  className="h-[3px] w-[70px] cursor-pointer accent-white/70"
+                <Heart
+                  size={16}
+                  className={isLiked ? "text-key" : "text-text-muted hover:text-text-secondary"}
+                  fill={isLiked ? "currentColor" : "none"}
+                  strokeWidth={2}
                 />
-              </div>
+              </motion.button>
             </div>
-
-            {!isHost && (
-              <p className="m-0 text-[11px] italic text-white/20 font-sans">
-                Chỉ host mới có thể điều khiển nhạc
-              </p>
-            )}
           </div>
+
+          <div>
+            <Slider
+              value={progress}
+              max={duration || 1}
+              onChange={handleProgressChange}
+              onChangeCommit={handleProgressCommit}
+              disabled={!isHost || !duration}
+              variant="progress"
+              ariaLabel="Tiến trình bài hát"
+            />
+            <div className="mt-1.5 flex justify-between text-[11px] text-text-muted">
+              <span>{formatTime(progress)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-5">
+            <button
+              onClick={() => isHost && onToggleShuffle?.()}
+              disabled={!isHost}
+              aria-label="Phát ngẫu nhiên"
+              className={`flex items-center transition-opacity ${repeatDisabledClass}`}
+            >
+              <Shuffle size={17} className={shuffleEnabled ? "text-key" : "text-text-secondary"} strokeWidth={2} />
+            </button>
+
+            <button
+              onClick={onPrev}
+              disabled={!isHost}
+              className={`flex items-center transition-opacity ${
+                isHost ? "cursor-pointer text-text-primary opacity-70 hover:opacity-100" : "cursor-not-allowed text-text-muted opacity-30"
+              }`}
+            >
+              <SkipBack size={22} fill="currentColor" strokeWidth={0} />
+            </button>
+
+            <motion.button
+              onClick={isPlaying ? onPause : onPlay}
+              disabled={!isHost}
+              whileHover={isHost ? { scale: 1.06 } : undefined}
+              whileTap={isHost ? { scale: 0.94 } : undefined}
+              className={`flex h-14 w-14 items-center justify-center rounded-full transition-colors ${
+                isHost ? "cursor-pointer bg-key hover:brightness-110" : "cursor-not-allowed bg-white/10"
+              }`}
+            >
+              {isPlaying ? (
+                <Pause size={22} fill="white" strokeWidth={0} />
+              ) : (
+                <Play size={22} fill="white" strokeWidth={0} className="ml-0.5" />
+              )}
+            </motion.button>
+
+            <button
+              onClick={onNext}
+              disabled={!isHost}
+              className={`flex items-center transition-opacity ${
+                isHost ? "cursor-pointer text-text-primary opacity-70 hover:opacity-100" : "cursor-not-allowed text-text-muted opacity-30"
+              }`}
+            >
+              <SkipForward size={22} fill="currentColor" strokeWidth={0} />
+            </button>
+
+            <button
+              onClick={() => isHost && onCycleRepeat?.()}
+              disabled={!isHost}
+              aria-label="Chế độ lặp lại"
+              className={`flex items-center transition-opacity ${repeatDisabledClass}`}
+            >
+              {repeatMode === "one" ? (
+                <Repeat1 size={17} className="text-key" strokeWidth={2} />
+              ) : (
+                <Repeat size={17} className={repeatMode === "all" ? "text-key" : "text-text-secondary"} strokeWidth={2} />
+              )}
+            </button>
+
+            <div className="ml-auto flex w-[140px] items-center gap-2">
+              <VolumeIcon size={16} className="flex-shrink-0 text-text-muted" strokeWidth={2} />
+              <Slider
+                value={volume}
+                max={1}
+                onChange={setVolume}
+                variant="volume"
+                ariaLabel="Âm lượng"
+              />
+            </div>
+          </div>
+
+          {!isHost && (
+            <p className="m-0 text-[11px] italic text-text-muted">Chỉ host mới có thể điều khiển nhạc</p>
+          )}
         </div>
       </div>
 
@@ -287,14 +641,12 @@ export default function MusicPlayer({
 
       <style>{`
         @keyframes spin-slow {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>
   );
-}
+});
+
+export default MusicPlayer;

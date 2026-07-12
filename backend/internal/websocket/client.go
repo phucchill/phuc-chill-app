@@ -25,11 +25,14 @@ var allowedTypes = map[string]bool{
 	// Room
 	"JOIN_APPROVE": true, "JOIN_REJECT": true,
 	"LEAVE_ROOM": true, "END_ROOM": true,
+	"PERMISSIONS_UPDATE": true,
 	// Music Room queue (khác với KTV "SONG_QUEUE_*" ở dưới)
 	"QUEUE_REQUEST": true, "QUEUE_APPROVE": true, "QUEUE_REJECT": true,
 	"QUEUE_REMOVE": true, "QUEUE_CLEAR_PENDING": true,
 	// Music Room player — Next/Prev
 	"PLAYER_NEXT": true, "PLAYER_PREV": true,
+	// Music Room player — Shuffle/Repeat/Like
+	"SHUFFLE_TOGGLE": true, "REPEAT_MODE_UPDATE": true, "SONG_LIKE_TOGGLE": true,
 	// KTV queue
 	"SONG_QUEUE_ADD": true, "SONG_QUEUE_REMOVE": true, "SONG_QUEUE_NEXT": true,
 	// KTV mic

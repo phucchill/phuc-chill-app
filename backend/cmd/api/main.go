@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -27,13 +28,45 @@ func main() {
 	database := mongoClient.Database(cfg.MongoDB)
 
 	messageRepo := repository.NewMessageRepo(database)
-	roomRepo    := repository.NewRoomRepo(database)
-	ktvRepo     := repository.NewKTVRepo(database) // ← KTV repo
+	roomRepo := repository.NewRoomRepo(database)
+	ktvRepo := repository.NewKTVRepo(database) // ← KTV repo
+
+	// ── Upload nhạc local + Preview YouTube ──────────────────────────────────
+	// uploadDir: thư mục vật lý lưu file upload — dùng os.TempDir() (thư
+	// mục tạm của hệ điều hành: /tmp trên Linux/macOS,
+	// C:\Users\<user>\AppData\Local\Temp trên Windows) thay vì "./uploads"
+	// như trước — TRÁNH lưu file người dùng lẫn vào source code của repo.
+	// uploadPublicPath: prefix URL để serve các file này ra ngoài (KHÔNG
+	// nằm trong frontend/public — xem ghi chú trong upload_handler.go).
+	uploadDir := filepath.Join(os.TempDir(), "music-room-uploads")
+	const uploadPublicPath = "/uploads"
+
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		log.Fatalf("[Main] Không thể tạo thư mục upload: %v", err)
+	}
+
+	// Dọn dẹp định kỳ: xóa file upload cũ hơn 6 tiếng, quét mỗi 30 phút.
+	// Đây là lưới an toàn chính (xem ghi chú chi tiết trong
+	// upload_handler.go) — bổ trợ thêm bằng việc xóa NGAY khi host chủ
+	// động xóa/từ chối bài upload khỏi hàng chờ (xem hub.go/queue_handler.go).
+	const uploadMaxAge = 1 * time.Hour
+	const uploadSweepInterval = 10 * time.Minute
+
+	// const uploadMaxAge = 2 * time.Minute
+	// const uploadSweepInterval = 30 * time.Second
+
+
+	go handlers.StartUploadCleanupSweeper(uploadDir, uploadMaxAge, uploadSweepInterval)
 
 	hub := ws.NewHub(messageRepo, roomRepo, ktvRepo) // ← truyền ktvRepo
+	hub.UploadDir = uploadDir
+	hub.UploadPublicPath = uploadPublicPath
 	go hub.Run()
 
 	roomHandler := handlers.NewRoomHandler(roomRepo, messageRepo)
+
+	uploadHandler := handlers.NewUploadHandler(uploadDir, uploadPublicPath)
+	youtubePreviewHandler := handlers.NewYoutubePreviewHandler()
 
 	mux := http.NewServeMux()
 
@@ -105,6 +138,13 @@ func main() {
 
 		http.NotFound(w, r)
 	})
+
+	// ── Add Song feature: upload file nhạc + preview YouTube ────────────────
+	mux.HandleFunc("/api/upload", uploadHandler)
+	mux.HandleFunc("/api/youtube/preview", youtubePreviewHandler)
+
+	// Serve file nhạc đã upload ra ngoài qua GET /uploads/<filename>
+	mux.Handle(uploadPublicPath+"/", http.StripPrefix(uploadPublicPath+"/", http.FileServer(http.Dir(uploadDir))))
 
 	handler := corsMiddleware(cfg.AllowOrigin, mux)
 

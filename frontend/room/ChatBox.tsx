@@ -1,9 +1,11 @@
 "use client";
 
 import { RefObject, KeyboardEvent, useState } from "react";
+import { motion } from "framer-motion";
+import { ImageIcon, Send, Smile } from "lucide-react";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import { ChatMessage } from "../types/websocket";
-import styles from "./ChatBox.module.css";
+import "./ChatBox.module.css";
 
 interface ExtendedChatMessage extends ChatMessage {
   avatarUrl?: string;
@@ -75,7 +77,7 @@ export default function ChatBox({
         <img
           src={stickerUrl}
           alt="sticker"
-          className="block h-[120px] w-[120px] rounded-xl object-cover"
+          className="block h-[120px] w-[120px] rounded-input object-cover"
         />
       );
     }
@@ -90,7 +92,7 @@ export default function ChatBox({
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="inline-block h-1.5 w-1.5 rounded-full bg-white"
+              className="inline-block h-1.5 w-1.5 rounded-full bg-text-secondary"
               style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
             />
           ))}
@@ -100,8 +102,8 @@ export default function ChatBox({
 
     if (messages.length === 0) {
       return (
-        <div className="flex flex-1 items-center justify-center opacity-30">
-          <p className="m-0 font-sans text-[13px] text-white">Chưa có tin nhắn</p>
+        <div className="flex flex-1 items-center justify-center">
+          <p className="m-0 text-[13px] text-text-muted">Chưa có tin nhắn</p>
         </div>
       );
     }
@@ -111,58 +113,61 @@ export default function ChatBox({
       const userName = msg.isMine ? "Bạn" : msg.userName || "Khách";
 
       return (
-        <div
+        <motion.div
           key={msg.id ?? msg._id ?? i}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
           className={`flex w-full items-start gap-2.5 ${msg.isMine ? "flex-row-reverse" : "flex-row"}`}
         >
           <img
             src={msg.avatarUrl || "https://i.pravatar.cc/100"}
             alt=""
-            className="h-[38px] w-[38px] flex-shrink-0 rounded-full bg-[#222] object-cover"
+            className="h-[34px] w-[34px] flex-shrink-0 rounded-avatar border border-border bg-surface-strong object-cover"
           />
 
-          <div
-            className={`flex max-w-[80%] flex-col ${msg.isMine ? "items-end" : "items-start"}`}
-          >
-            <div className="mb-1 font-sans text-sm font-bold text-white">{userName}</div>
+          <div className={`flex max-w-[80%] flex-col ${msg.isMine ? "items-end" : "items-start"}`}>
+            <div className="mb-1 text-[12px] font-semibold text-text-secondary">{userName}</div>
 
             <div
-              className={`font-sans text-sm leading-relaxed text-white break-words ${
+              className={`text-[13px] leading-relaxed break-words ${
                 isSticker
-                  ? "rounded-xl bg-transparent p-1"
-                  : "rounded-xl border border-white/5 bg-white/[0.06] px-3.5 py-2.5"
+                  ? "rounded-input bg-transparent p-1"
+                  : msg.isMine
+                  ? "rounded-input rounded-tr-sm bg-key px-3.5 py-2.5 text-white"
+                  : "rounded-input rounded-tl-sm border border-border bg-surface px-3.5 py-2.5 text-text-primary"
               }`}
             >
               {renderMessageContent(msg.content)}
             </div>
 
             {(msg.timestamp || msg.createdAt) && (
-              <span className="mt-1 font-sans text-[11px] text-white/30">
+              <span className="mt-1 text-[10px] text-text-muted">
                 {formatTime(msg.timestamp, msg.createdAt)}
               </span>
             )}
           </div>
-        </div>
+        </motion.div>
       );
     });
   };
 
   return (
-    <div className="flex h-[780px] flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#111113]">
+    <div className="glass-card flex h-[780px] flex-col overflow-hidden rounded-card bg-surface/60">
       {/* Header */}
-      <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-white/5 px-6 py-4">
-        <span className="font-serif text-[13px] uppercase tracking-[0.15em] text-white/40">
-          Tin nhắn
+      <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-divider px-6 py-4">
+        <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-text-secondary">
+          Trò chuyện
         </span>
 
-        <span className="ml-auto font-sans text-[11px] text-white/25">
+        <span className="ml-auto text-[11px] text-text-muted">
           {isLoading ? "..." : `${messages.length} tin`}
         </span>
       </div>
 
       {/* Vùng cuộn tin nhắn */}
       <div
-        className={`${styles.chatScroll} flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden px-[18px] py-4 pl-5`}
+        className="apple-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden px-[18px] py-4 pl-5"
         style={{ scrollBehavior: "smooth" }}
       >
         {renderBody()}
@@ -170,7 +175,7 @@ export default function ChatBox({
       </div>
 
       {/* Thanh công cụ nhập liệu */}
-      <div className="relative flex flex-shrink-0 items-center gap-2.5 border-t border-white/5 bg-black/40 px-4 py-3">
+      <div className="relative flex flex-shrink-0 items-center gap-2.5 border-t border-divider bg-black/20 px-4 py-3">
         {showEmoji && (
           <div className="absolute bottom-[62px] left-3 z-[999]">
             <EmojiPicker
@@ -184,8 +189,7 @@ export default function ChatBox({
 
         {showSticker && (
           <div
-            className="sticker-scroll absolute bottom-[62px] left-[65px] z-[999] grid max-h-80 w-80 grid-cols-3 gap-2.5 overflow-y-auto rounded-2xl border border-white/10 bg-[#0c0c0e] p-3"
-            style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.2) transparent" }}
+            className="apple-scroll absolute bottom-[62px] left-[65px] z-[999] grid max-h-80 w-80 grid-cols-3 gap-2.5 overflow-y-auto rounded-card border border-border bg-surface p-3"
           >
             {stickers.map((sticker) => (
               <button
@@ -196,13 +200,9 @@ export default function ChatBox({
                   setShowSticker(false);
                   setShowEmoji(false);
                 }}
-                className="cursor-pointer rounded-xl border-none bg-white/5 p-1.5 hover:bg-white/10"
+                className="cursor-pointer rounded-input border-none bg-white/5 p-1.5 hover:bg-white/10"
               >
-                <img
-                  src={sticker}
-                  alt=""
-                  className="h-[70px] w-full rounded-lg object-cover"
-                />
+                <img src={sticker} alt="" className="h-[70px] w-full rounded-md object-cover" />
               </button>
             ))}
           </div>
@@ -214,9 +214,9 @@ export default function ChatBox({
             setShowEmoji(!showEmoji);
             setShowSticker(false);
           }}
-          className="h-10 w-10 cursor-pointer rounded-xl border border-white/5 bg-white/5 text-xl text-white hover:bg-white/10"
+          className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-input border border-border bg-white/5 text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary"
         >
-          😊
+          <Smile size={18} strokeWidth={2} />
         </button>
 
         <button
@@ -225,9 +225,9 @@ export default function ChatBox({
             setShowSticker(!showSticker);
             setShowEmoji(false);
           }}
-          className="h-10 w-10 cursor-pointer rounded-xl border border-white/5 bg-white/5 text-lg text-white hover:bg-white/10"
+          className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-input border border-border bg-white/5 text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary"
         >
-          🖼️
+          <ImageIcon size={18} strokeWidth={2} />
         </button>
 
         <input
@@ -236,7 +236,7 @@ export default function ChatBox({
           onChange={(e) => setChatText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Nhắn gì đó..."
-          className="min-w-0 flex-1 rounded-xl border border-white/5 bg-white/5 px-3.5 py-2.5 font-sans text-[13px] text-white outline-none placeholder:text-white/30"
+          className="min-w-0 flex-1 rounded-input border border-border bg-white/5 px-3.5 py-2.5 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-key"
         />
 
         <button
@@ -246,13 +246,13 @@ export default function ChatBox({
             setShowSticker(false);
           }}
           disabled={!chatText.trim()}
-          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border-none text-white transition-opacity ${
+          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-input border-none transition-colors ${
             chatText.trim()
-              ? "cursor-pointer bg-white/15 opacity-100 hover:bg-white/25"
-              : "cursor-not-allowed bg-white/5 opacity-45"
+              ? "cursor-pointer bg-key text-white hover:brightness-110"
+              : "cursor-not-allowed bg-white/5 text-text-muted"
           }`}
         >
-          ➤
+          <Send size={16} strokeWidth={2} />
         </button>
       </div>
     </div>

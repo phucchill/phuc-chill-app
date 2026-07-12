@@ -114,6 +114,42 @@ func (r *RoomRepo) Reopen(ctx context.Context, roomID string) error {
 	return err
 }
 
+// UpdatePermissions lưu RIÊNG field "permissions" của phòng — CHỦ Ý không
+// dùng chung với Upsert() ở trên, vì Upsert() $set toàn bộ field (roomName,
+// maxUsers, v.v.) mỗi lần gọi; nếu tái dùng Upsert() chỉ để lưu permissions,
+// những field khác không có trong tay Hub lúc đó (vd RoomName) sẽ bị ghi
+// đè thành rỗng, xóa mất dữ liệu đã lưu trước đó.
+//
+// Dùng $setOnInsert cho "roomId"/"createdAt" + SetUpsert(true): nếu phòng
+// chưa từng có document trong Mongo (vd tạo phòng qua WebSocket trước khi
+// CreateRoom HTTP từng chạy), document mới sẽ tự được tạo với đúng roomId
+// nhờ MongoDB tự động copy điều kiện filter đơn giản vào document upsert.
+func (r *RoomRepo) UpdatePermissions(ctx context.Context, roomID string, permissions model.RoomPermissions) error {
+	now := time.Now()
+
+	filter := bson.M{"roomId": roomID}
+
+	update := bson.M{
+		"$set": bson.M{
+			"permissions": permissions,
+			"updatedAt":   now,
+		},
+		"$setOnInsert": bson.M{
+			"roomId":    roomID,
+			"createdAt": now,
+		},
+	}
+
+	opts := options.Update().SetUpsert(true)
+
+	_, err := r.col.UpdateOne(ctx, filter, update, opts)
+	if err != nil {
+		log.Printf("[RoomRepo] UpdatePermissions lỗi roomId=%s: %v", roomID, err)
+	}
+
+	return err
+}
+
 // ListOpen lấy danh sách phòng chưa đóng (bảo vệ lỗi dữ liệu null hoặc trống trường closedAt)
 func (r *RoomRepo) ListOpen(ctx context.Context) ([]*model.RoomRecord, error) {
 	filter := bson.M{

@@ -1,3 +1,5 @@
+import type { RoomPermissions, SongSource } from "./upload";
+
 export interface Participant {
   id: string;
   name: string;
@@ -24,6 +26,9 @@ export interface QueueSong {
   requestedBy?: string;
   requestedByName?: string;
   songSrc?: string; // khớp với backend, dùng để chặn request trùng bài đang phát
+
+  /** "library" | "upload" | "youtube" — mặc định "library" nếu backend không gửi */
+  source?: SongSource;
 }
 
 // ─── Room state ───────────────────────────────────────────────────────────────
@@ -48,6 +53,17 @@ export interface RoomState {
 
   // Music Room queue
   queueSongs?: QueueSong[];
+
+  // Quyền phòng — Host cấu hình trong Room Settings
+  permissions?: RoomPermissions;
+
+  // Điều khiển cách phát nhạc (Shuffle/Repeat/Like) — xem playback_handler.go
+  /** Bật thì Next chọn ngẫu nhiên bài trong hàng chờ */
+  shuffleEnabled?: boolean;
+  /** "off" | "one" | "all" */
+  repeatMode?: "off" | "one" | "all";
+  /** Like dùng chung cho cả phòng, áp dụng cho bài đang phát */
+  currentSongLiked?: boolean;
 
   // KTV mic
   activeMicUid?: string;
@@ -111,6 +127,14 @@ export type WSMessageType =
   | "QUEUE_UPDATE"        // server broadcast danh sách mới
   | "QUEUE_REJECTED"      // thông báo riêng cho user bị từ chối bài
   | "QUEUE_REMOVED"       // thông báo riêng cho user bị xóa bài
+
+  // Room settings
+  | "PERMISSIONS_UPDATE"  // host cập nhật quyền thêm bài (chỉ host)
+
+  // Điều khiển cách phát nhạc
+  | "SHUFFLE_TOGGLE"      // host bật/tắt phát ngẫu nhiên
+  | "REPEAT_MODE_UPDATE"  // host đổi chế độ lặp lại (off/one/all)
+  | "SONG_LIKE_TOGGLE"    // ai cũng bấm được — thích bài đang phát
 
   // Music Room player
   | "PLAYER_NEXT"

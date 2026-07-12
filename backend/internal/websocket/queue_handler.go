@@ -3,7 +3,10 @@ package websocket
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
+
+	"music-room/internal/handlers"
 )
 
 // queueMessageTypes là các message liên quan tới "Danh sách chờ" bài hát
@@ -34,10 +37,25 @@ type queueSongPayload struct {
 	Thumbnail string  `json:"thumbnail"`
 	Duration  float64 `json:"duration"`
 	SongUrl   string  `json:"songSrc"`
+
+	// Source: "library" | "upload" | "youtube". Rỗng được coi là "library"
+	// để tương thích ngược với client cũ chưa gửi field này.
+	Source string `json:"source"`
 }
 
 type queueIDPayload struct {
 	ID string `json:"id"`
+}
+
+// findClientUserName tìm tên hiển thị của 1 user đang có mặt trong phòng.
+// PHẢI được gọi trong lúc đang giữ h.mu (đọc room.Clients).
+func findClientUserName(room *Room, userID string) string {
+	for c := range room.Clients {
+		if c.UserID == userID {
+			return c.UserName
+		}
+	}
+	return ""
 }
 
 // handleQueueMessage xử lý toàn bộ message của "Danh sách chờ" + điều
@@ -81,6 +99,28 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 			break
 		}
 
+		source := p.Source
+		if source == "" {
+			source = "library"
+		}
+
+		// Quyền thêm bài theo nguồn — chỉ áp dụng cho member, host luôn
+		// được phép. Xem model.RoomPermissions.CanMemberAdd.
+		if !isHost && !room.Permissions.CanMemberAdd(source) {
+			var reason string
+			switch source {
+			case "upload":
+				reason = "Host đã tắt quyền tải file lên cho thành viên"
+			case "youtube":
+				reason = "Host đã tắt quyền thêm link YouTube cho thành viên"
+			default:
+				reason = "Host đã tắt quyền tìm kiếm thư viện cho thành viên"
+			}
+			h.sendErrorLocked(room, msg.SenderID, reason)
+			changed = false
+			break
+		}
+
 		// Không cho thêm bài đang phát (so khớp bằng file mp3 thật, không
 		// phải ID request — vì mỗi lần request FE tạo ID ngẫu nhiên mới).
 		if p.SongUrl != "" && p.SongUrl == room.CurrentSong {
@@ -92,16 +132,22 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 		room.LastRequestAt[msg.SenderID] = time.Now()
 
 		song := QueueSong{
-			ID:          p.ID,
-			Title:       p.Title,
-			Artist:      p.Artist,
-			Thumbnail:   p.Thumbnail,
-			Duration:    p.Duration,
-			SongUrl:     p.SongUrl,
-			RequestedBy: msg.SenderID,
+			ID:              p.ID,
+			Title:           p.Title,
+			Artist:          p.Artist,
+			Thumbnail:       p.Thumbnail,
+			Duration:        p.Duration,
+			SongUrl:         p.SongUrl,
+			RequestedBy:     msg.SenderID,
+			RequestedByName: findClientUserName(room, msg.SenderID),
+			Source:          source,
 		}
 
-		if isHost {
+		// Auto-approve: host luôn auto-approve. Member chỉ auto-approve
+		// nếu đây là file upload VÀ host đã bật "Auto approve uploads".
+		autoApprove := isHost || (source == "upload" && room.Permissions.AutoApproveUploads)
+
+		if autoApprove {
 			room.Queue.AddQueued(song)
 		} else {
 			room.Queue.AddPending(song)
@@ -139,12 +185,18 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 		song, found := room.Queue.FindByID(p.ID)
 		changed = room.Queue.Reject(p.ID)
 
-		if changed && found && song.RequestedBy != "" && song.RequestedBy != msg.SenderID {
-			h.sendToUserLocked(room, song.RequestedBy, "QUEUE_REJECTED", map[string]string{
-				"id":      song.ID,
-				"title":   song.Title,
-				"message": fmt.Sprintf("Host đã từ chối bài \"%s\" của bạn", song.Title),
-			})
+		if changed && found {
+			// Bài bị từ chối chắc chắn không còn dùng lại — xóa file
+			// upload NGAY, không cần chờ sweeper dọn theo tuổi.
+			h.deleteUploadFileForSong(song)
+
+			if song.RequestedBy != "" && song.RequestedBy != msg.SenderID {
+				h.sendToUserLocked(room, song.RequestedBy, "QUEUE_REJECTED", map[string]string{
+					"id":      song.ID,
+					"title":   song.Title,
+					"message": fmt.Sprintf("Host đã từ chối bài \"%s\" của bạn", song.Title),
+				})
+			}
 		}
 
 	case "QUEUE_REMOVE":
@@ -163,12 +215,19 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 		song, found := room.Queue.FindByID(p.ID)
 		changed = room.Queue.Remove(p.ID)
 
-		if changed && found && song.RequestedBy != "" && song.RequestedBy != msg.SenderID {
-			h.sendToUserLocked(room, song.RequestedBy, "QUEUE_REMOVED", map[string]string{
-				"id":      song.ID,
-				"title":   song.Title,
-				"message": fmt.Sprintf("Host đã xóa bài \"%s\" của bạn khỏi hàng chờ", song.Title),
-			})
+		if changed && found {
+			// Bài này chưa từng được phát (đang nằm trong hàng chờ, chưa
+			// tới lượt) — xóa hẳn nghĩa là sẽ không bao giờ cần file này
+			// nữa, xóa NGAY an toàn.
+			h.deleteUploadFileForSong(song)
+
+			if song.RequestedBy != "" && song.RequestedBy != msg.SenderID {
+				h.sendToUserLocked(room, song.RequestedBy, "QUEUE_REMOVED", map[string]string{
+					"id":      song.ID,
+					"title":   song.Title,
+					"message": fmt.Sprintf("Host đã xóa bài \"%s\" của bạn khỏi hàng chờ", song.Title),
+				})
+			}
 		}
 
 	case "QUEUE_CLEAR_PENDING":
@@ -178,6 +237,13 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 			break
 		}
 
+		// Xóa file upload cho TỪNG bài pending trước khi xóa khỏi hàng chờ
+		// — pending nghĩa là chưa từng được duyệt/phát, xóa an toàn.
+		for _, song := range room.Queue.Songs {
+			if song.Status == "pending" {
+				h.deleteUploadFileForSong(song)
+			}
+		}
 		room.Queue.ClearPending()
 
 	case "PLAYER_NEXT":
@@ -187,16 +253,40 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 			break
 		}
 
-		next, ok := room.Queue.PopNextQueued()
+		// Repeat "one": phát lại ĐÚNG bài đang phát, không đụng vào hàng
+		// chờ/history — bấm Next trong lúc lặp 1 bài chỉ là restart.
+		if room.RepeatMode == "one" && room.CurrentQueueSong != nil {
+			room.Progress = 0
+			room.IsPlaying = true
+			room.LastUpdated = time.Now()
+			room.CurrentSongLiked = false
+			break
+		}
+
+		var next QueueSong
+		var ok bool
+		if room.ShuffleEnabled {
+			// Shuffle: chọn ngẫu nhiên 1 bài "queued" — KHÔNG xáo trộn thứ
+			// tự hiển thị của hàng chờ, chỉ đổi cách chọn bài kế tiếp.
+			next, ok = room.Queue.PopRandomQueued()
+		} else {
+			next, ok = room.Queue.PopNextQueued()
+		}
+
 		if !ok {
 			h.sendErrorLocked(room, msg.SenderID, "Không còn bài nào trong hàng chờ")
 			changed = false
 			break
 		}
 
-		// Bài đang phát (nếu có) được đẩy vào lịch sử để Prev dùng lại.
 		if room.CurrentQueueSong != nil {
-			room.Queue.PushHistory(*room.CurrentQueueSong)
+			if room.RepeatMode == "all" {
+				// Repeat "all": bài vừa phát xong quay lại CUỐI hàng chờ
+				// thay vì xóa hẳn → vòng lặp vô hạn qua toàn bộ queue.
+				room.Queue.PushBackQueued(*room.CurrentQueueSong)
+			} else {
+				room.Queue.PushHistory(*room.CurrentQueueSong)
+			}
 		}
 
 		room.CurrentSong = next.SongUrl
@@ -204,11 +294,22 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 		room.IsPlaying = true
 		room.Progress = 0
 		room.LastUpdated = time.Now()
+		room.CurrentSongLiked = false
 
 	case "PLAYER_PREV":
 		if !isHost {
 			h.sendErrorLocked(room, msg.SenderID, "Chỉ host mới được chuyển bài")
 			changed = false
+			break
+		}
+
+		// Repeat "one": Prev cũng chỉ restart bài đang phát, giữ nguyên
+		// hành vi nhất quán với Next khi đang lặp 1 bài.
+		if room.RepeatMode == "one" && room.CurrentQueueSong != nil {
+			room.Progress = 0
+			room.IsPlaying = true
+			room.LastUpdated = time.Now()
+			room.CurrentSongLiked = false
 			break
 		}
 
@@ -230,6 +331,7 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 		room.IsPlaying = true
 		room.Progress = 0
 		room.LastUpdated = time.Now()
+		room.CurrentSongLiked = false
 
 	default:
 		changed = false
@@ -243,4 +345,24 @@ func (h *Hub) handleQueueMessage(room *Room, msg Message) {
 	}
 
 	h.broadcastRoomState(room.ID)
+}
+
+// deleteUploadFileForSong xóa file vật lý đứng sau 1 QueueSong nguồn
+// "upload", nếu có. Không làm gì với bài "library"/"youtube". PHẢI được
+// gọi trong lúc đang giữ h.mu (cùng ngữ cảnh lock với phần còn lại của
+// handleQueueMessage) — bản thân os.Remove không cần lock nhưng gọi ở đây
+// để giữ code gọn, không tách file riêng chỉ vì 1 hàm nhỏ.
+func (h *Hub) deleteUploadFileForSong(song QueueSong) {
+	if song.Source != "upload" || h.UploadDir == "" {
+		return
+	}
+
+	fileName, ok := handlers.ExtractUploadFileName(h.UploadPublicPath, song.SongUrl)
+	if !ok {
+		return
+	}
+
+	if err := handlers.DeleteUploadedFile(h.UploadDir, fileName); err != nil {
+		log.Printf("[Queue] Xóa file upload %s lỗi: %v", fileName, err)
+	}
 }
