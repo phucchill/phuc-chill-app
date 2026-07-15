@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 import { RefObject, useEffect, useState } from "react";
 import { Heart, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from "lucide-react";

@@ -16,6 +16,16 @@ const (
 	RoleViewer Role = "viewer"
 )
 
+// ─── Room Mode ────────────────────────────────────────────────────────────────
+
+type RoomMode string
+
+const (
+	ModeLounge      RoomMode = "lounge"      // Mặc định — nghe nhạc cùng nhau, chưa ai hát
+	ModePerformance RoomMode = "performance" // Có người đang được spotlight trình diễn
+	ModePK          RoomMode = "pk"          // Đang diễn ra trận PK
+)
+
 // GiftCost giá trị vote của từng loại quà
 var GiftCost = map[string]int{
 	"rose":    10,
@@ -46,6 +56,20 @@ type MicRequest struct {
 	RequestedAt time.Time `bson:"requestedAt" json:"requestedAt"`
 }
 
+// MicSlot đại diện 1 trong 6 ghế mic. Slot trống được biểu diễn bằng nil
+// trong mảng KTVState.MicSlots (JSON marshal ra null).
+type MicSlot struct {
+	Index      int       `bson:"index"      json:"index"`
+	UserID     string    `bson:"userId"     json:"userId"`
+	UserName   string    `bson:"userName"   json:"userName"`
+	CameraOn   bool      `bson:"cameraOn"   json:"cameraOn"`
+	IsSpeaking bool      `bson:"isSpeaking" json:"isSpeaking"`
+	GiftScore  int       `bson:"giftScore"  json:"giftScore"`
+	JoinedAt   time.Time `bson:"joinedAt"   json:"joinedAt"`
+}
+
+const MaxMicSlots = 6
+
 // ─── Gift ─────────────────────────────────────────────────────────────────────
 
 type GiftEvent struct {
@@ -69,7 +93,7 @@ type GiftEvent struct {
 type PKVote struct {
 	VoterID   string `bson:"voterId"   json:"voterId"`
 	Side      string `bson:"side"      json:"side"`
-	VoteType  string `bson:"voteType"  json:"voteType"`  // "manual" | "gift"
+	VoteType  string `bson:"voteType"  json:"voteType"` // "manual" | "gift"
 	VoteScore int    `bson:"voteScore" json:"voteScore"`
 }
 
@@ -81,18 +105,16 @@ type PKBattle struct {
 	OpponentID     string             `bson:"opponentId"          json:"opponentId"`
 	OpponentName   string             `bson:"opponentName"        json:"opponentName"`
 
-	// Tổng điểm hiển thị (vote tay + quà)
 	ChallengerScore int `bson:"challengerScore" json:"challengerScore"`
 	OpponentScore   int `bson:"opponentScore"   json:"opponentScore"`
 
-	// Thống kê tách riêng
 	ChallengerGiftScore int `bson:"challengerGiftScore" json:"challengerGiftScore"`
 	OpponentGiftScore   int `bson:"opponentGiftScore"   json:"opponentGiftScore"`
 	ChallengerVoteCount int `bson:"challengerVoteCount" json:"challengerVoteCount"`
 	OpponentVoteCount   int `bson:"opponentVoteCount"   json:"opponentVoteCount"`
 
 	Votes      []PKVote `bson:"votes"      json:"votes"`
-	VotedUsers []string `bson:"votedUsers" json:"votedUsers"` // chỉ track vote tay
+	VotedUsers []string `bson:"votedUsers" json:"votedUsers"`
 
 	WinnerID   string `bson:"winnerId"   json:"winnerId"`
 	WinnerName string `bson:"winnerName" json:"winnerName"`
@@ -103,7 +125,6 @@ type PKBattle struct {
 	Done      bool       `bson:"done"                json:"done"`
 }
 
-// HasVoted kiểm tra user đã vote tay chưa (vote quà không giới hạn)
 func (pk *PKBattle) HasVoted(voterID string) bool {
 	for _, uid := range pk.VotedUsers {
 		if uid == voterID {
@@ -113,7 +134,6 @@ func (pk *PKBattle) HasVoted(voterID string) bool {
 	return false
 }
 
-// AddManualVote 1 vote tay, mỗi user chỉ được 1 lần
 func (pk *PKBattle) AddManualVote(voterID, side string) bool {
 	if pk.HasVoted(voterID) {
 		return false
@@ -132,7 +152,6 @@ func (pk *PKBattle) AddManualVote(voterID, side string) bool {
 	return true
 }
 
-// AddGiftVote cộng điểm quà, không giới hạn số lần
 func (pk *PKBattle) AddGiftVote(fromUserID, side string, score int) {
 	pk.Votes = append(pk.Votes, PKVote{
 		VoterID: fromUserID, Side: side, VoteType: "gift", VoteScore: score,
@@ -146,7 +165,6 @@ func (pk *PKBattle) AddGiftVote(fromUserID, side string, score int) {
 	}
 }
 
-// Resolve tính winner theo tổng score
 func (pk *PKBattle) Resolve() {
 	now := time.Now()
 	pk.EndedAt = &now
@@ -158,4 +176,48 @@ func (pk *PKBattle) Resolve() {
 		pk.WinnerID = pk.OpponentID
 		pk.WinnerName = pk.OpponentName
 	}
+}
+
+// ─── Performance & Room Memory ─────────────────────────────────────────────────
+
+// Performance là buổi trình diễn đang diễn ra (1 người được spotlight).
+type Performance struct {
+	SingerID   string    `json:"singerId"`
+	SingerName string    `json:"singerName"`
+	SongTitle  string    `json:"songTitle"`
+	SongArtist string    `json:"songArtist"`
+	Lyrics        string    `json:"lyrics,omitempty"`        // MỚI
+	AlbumCoverURL string    `json:"albumCoverUrl,omitempty"` // MỚI
+	StartedAt  time.Time `json:"startedAt"`
+	Likes      int       `json:"likes"`
+	GiftScore  int       `json:"giftScore"`
+}
+
+// RoomMemoryEntry lưu lại 1 màn trình diễn đã kết thúc trong phiên phòng.
+// Reset hoàn toàn khi phòng đóng (không persist Mongo — đúng như yêu cầu).
+type RoomMemoryEntry struct {
+	SongTitle     string    `json:"songTitle"`
+	SongArtist    string    `json:"songArtist"`
+	SingerID      string    `json:"singerId"`
+	SingerName    string    `json:"singerName"`
+	DurationSec   int       `json:"durationSec"`
+	Likes         int       `json:"likes"`
+	GiftScore     int       `json:"giftScore"`
+	AudienceCount int       `json:"audienceCount"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+// TopSingerStats — thống kê chỉ trong phạm vi phòng hiện tại (không global).
+type TopSingerStats struct {
+	UserID     string `json:"userId"`
+	UserName   string `json:"userName"`
+	SongsSung  int    `json:"songsSung"`
+	TotalGifts int    `json:"totalGifts"`
+	TotalLikes int    `json:"totalLikes"`
+	PKWins     int    `json:"pkWins"`
+}
+// ─── Reaction ─────────────────────────────────────────────────────────────────
+// Danh sách emoji hợp lệ — validate ở handler để chặn payload rác.
+var ValidReactions = map[string]bool{
+	"🔥": true, "😍": true, "👏": true, "😂": true, "❤️": true,
 }

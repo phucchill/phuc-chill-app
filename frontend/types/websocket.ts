@@ -14,7 +14,59 @@ export interface MicRequest {
   requestedAt: number;
 }
 
-// ─── Music Room queue ─────────────────────────────────────────────────────────
+// ─── KTV: Mic Slot (6 ghế cố định) ──────────────────────────────────────────────
+// Khớp model.MicSlot bên Go. Ghế trống → null trong mảng 6 phần tử.
+export interface MicSlot {
+  index: number;
+  userId: string;
+  userName: string;
+  cameraOn: boolean;
+  isSpeaking: boolean;
+  giftScore: number;
+  joinedAt: number;
+}
+
+export type MicSlotArray = (MicSlot | null)[]; // luôn có độ dài 6
+
+// ─── KTV: Room Mode ─────────────────────────────────────────────────────────────
+export type RoomMode = "lounge" | "performance" | "pk";
+
+// ─── KTV: Performance (Spotlight) ────────────────────────────────────────────────
+export interface Performance {
+  singerId: string;
+  singerName: string;
+  songTitle: string;
+  songArtist: string;
+  lyrics?: string;        // MỚI — khớp model.Performance.Lyrics bên Go
+  albumCoverUrl?: string;
+  startedAt: number;
+  likes: number;
+  giftScore: number;
+}
+
+// ─── KTV: Room Memory & Top Singer (chỉ trong phạm vi phòng, reset khi đóng phòng) ──
+export interface RoomMemoryEntry {
+  songTitle: string;
+  songArtist: string;
+  singerId: string;
+  singerName: string;
+  durationSec: number;
+  likes: number;
+  giftScore: number;
+  audienceCount: number;
+  timestamp: number;
+}
+
+export interface TopSingerStats {
+  userId: string;
+  userName: string;
+  songsSung: number;
+  totalGifts: number;
+  totalLikes: number;
+  pkWins: number;
+}
+
+// ─── Music Room queue (KHÔNG đổi — giữ nguyên logic phòng nghe nhạc chính) ───────
 
 export interface QueueSong {
   id: string;
@@ -25,9 +77,7 @@ export interface QueueSong {
   status: "pending" | "queued";
   requestedBy?: string;
   requestedByName?: string;
-  songSrc?: string; // khớp với backend, dùng để chặn request trùng bài đang phát
-
-  /** "library" | "upload" | "youtube" — mặc định "library" nếu backend không gửi */
+  songSrc?: string;
   source?: SongSource;
 }
 
@@ -54,21 +104,24 @@ export interface RoomState {
   // Music Room queue
   queueSongs?: QueueSong[];
 
-  // Quyền phòng — Host cấu hình trong Room Settings
   permissions?: RoomPermissions;
 
-  // Điều khiển cách phát nhạc (Shuffle/Repeat/Like) — xem playback_handler.go
-  /** Bật thì Next chọn ngẫu nhiên bài trong hàng chờ */
   shuffleEnabled?: boolean;
-  /** "off" | "one" | "all" */
   repeatMode?: "off" | "one" | "all";
-  /** Like dùng chung cho cả phòng, áp dụng cho bài đang phát */
   currentSongLiked?: boolean;
 
-  // KTV mic
+  // KTV — legacy field, giữ lại để không vỡ code cũ đang tham chiếu (nếu có).
+  // Component mới nên dùng `micSlots` thay vì `activeMicUid`.
   activeMicUid?: string;
   activeMicName?: string;
   micRequests?: MicRequest[];
+
+  // KTV — mới
+  micSlots?: MicSlotArray;
+  mode?: RoomMode;
+  currentPerformance?: Performance | null;
+  roomMemory?: RoomMemoryEntry[];
+  topSingers?: TopSingerStats[];
 }
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
@@ -76,16 +129,12 @@ export interface RoomState {
 export interface ChatMessage {
   _id?: string;
   id?: string;
-
   roomId?: string;
   senderId?: string;
-
   userName: string;
   content: string;
-
   createdAt?: string;
   timestamp?: number;
-
   isMine?: boolean;
 }
 
@@ -118,25 +167,19 @@ export type WSMessageType =
   | "LEAVE_ROOM"
   | "END_ROOM"
 
-  // Music Room queue
-  | "QUEUE_REQUEST"       // thêm bài (host → queued, member → pending)
-  | "QUEUE_APPROVE"       // host duyệt bài đang pending
-  | "QUEUE_REJECT"        // host từ chối bài đang pending
-  | "QUEUE_REMOVE"        // xóa bài đã queued
-  | "QUEUE_CLEAR_PENDING" // host xóa hết bài đang pending
-  | "QUEUE_UPDATE"        // server broadcast danh sách mới
-  | "QUEUE_REJECTED"      // thông báo riêng cho user bị từ chối bài
-  | "QUEUE_REMOVED"       // thông báo riêng cho user bị xóa bài
-
-  // Room settings
-  | "PERMISSIONS_UPDATE"  // host cập nhật quyền thêm bài (chỉ host)
-
-  // Điều khiển cách phát nhạc
-  | "SHUFFLE_TOGGLE"      // host bật/tắt phát ngẫu nhiên
-  | "REPEAT_MODE_UPDATE"  // host đổi chế độ lặp lại (off/one/all)
-  | "SONG_LIKE_TOGGLE"    // ai cũng bấm được — thích bài đang phát
-
-  // Music Room player
+  // Music Room queue (KHÔNG đổi)
+  | "QUEUE_REQUEST"
+  | "QUEUE_APPROVE"
+  | "QUEUE_REJECT"
+  | "QUEUE_REMOVE"
+  | "QUEUE_CLEAR_PENDING"
+  | "QUEUE_UPDATE"
+  | "QUEUE_REJECTED"
+  | "QUEUE_REMOVED"
+  | "PERMISSIONS_UPDATE"
+  | "SHUFFLE_TOGGLE"
+  | "REPEAT_MODE_UPDATE"
+  | "SONG_LIKE_TOGGLE"
   | "PLAYER_NEXT"
   | "PLAYER_PREV"
 
@@ -146,11 +189,33 @@ export type WSMessageType =
   | "SONG_QUEUE_NEXT"
   | "SONG_QUEUE_UPDATE"
 
-  // KTV — mic
+  // KTV — mic (hàng chờ)
   | "MIC_REQUEST"
   | "MIC_APPROVE"
   | "MIC_REJECT"
   | "MIC_RELEASE"
+  | "MIC_KICK"
+  | "MIC_KICKED"
+  | "MIC_SLOTS_UPDATE"
+
+  // KTV — camera / speaking
+  | "CAMERA_TOGGLE"
+  | "SPEAKING_UPDATE"
+
+  // KTV — room mode
+  | "ROOM_MODE_UPDATE"
+
+  // KTV — performance (spotlight)
+  | "PERFORMANCE_START"
+  | "PERFORMANCE_LIKE"
+  | "PERFORMANCE_LIKE_UPDATE"
+  | "PERFORMANCE_END"
+
+  //ktv 
+  | "REACTION_SEND"
+  | "REACTION_BROADCAST"
+  | "KICK_FROM_ROOM"
+  | "KICKED_FROM_ROOM"
 
   // KTV — gift
   | "GIFT_SEND"
@@ -164,6 +229,11 @@ export type WSMessageType =
   | "PK_SCORE_UPDATE"
   | "PK_RESULT"
   | "PK_END"
+
+  // KTV — WebRTC signaling (relay-only qua server)
+  | "WEBRTC_OFFER"
+  | "WEBRTC_ANSWER"
+  | "WEBRTC_ICE_CANDIDATE"
 
   // KTV — role
   | "ROLE_UPDATE";
@@ -235,4 +305,12 @@ export interface PKResultPayload {
 export interface RoleUpdatePayload {
   userId: string;
   role: "host" | "mic" | "viewer";
+}
+
+// ─── KTV — WebRTC signaling payloads ─────────────────────────────────────────────
+export interface WebRTCSignalPayload {
+  targetUserId: string; // bắt buộc — server relay dựa vào field này
+  fromUserId?: string;  // server tự gắn, FE không cần set khi gửi đi
+  sdp?: RTCSessionDescriptionInit; // dùng cho OFFER/ANSWER
+  candidate?: RTCIceCandidateInit; // dùng cho ICE_CANDIDATE
 }

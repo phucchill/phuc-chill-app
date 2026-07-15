@@ -37,10 +37,21 @@ var allowedTypes = map[string]bool{
 	"SONG_QUEUE_ADD": true, "SONG_QUEUE_REMOVE": true, "SONG_QUEUE_NEXT": true,
 	// KTV mic
 	"MIC_REQUEST": true, "MIC_APPROVE": true, "MIC_REJECT": true, "MIC_RELEASE": true,
+	"MIC_KICK": true, // MỚI — host gỡ user khỏi ghế mic
+	// KTV camera / speaking
+	"CAMERA_TOGGLE": true, "SPEAKING_UPDATE": true, // MỚI
 	// KTV gift
 	"GIFT_SEND": true,
 	// KTV PK
 	"PK_CHALLENGE": true, "PK_VOTE": true, "PK_END": true,
+	// KTV performance (spotlight)
+	"PERFORMANCE_START": true, "PERFORMANCE_LIKE": true, "PERFORMANCE_END": true, // MỚI
+	// KTV WebRTC signaling — relay-only
+	"WEBRTC_OFFER": true, "WEBRTC_ANSWER": true, "WEBRTC_ICE_CANDIDATE": true, // MỚI
+	// KTV reaction
+	"REACTION_SEND": true, // MỚI
+	// KTV room ban
+	"KICK_FROM_ROOM": true, // MỚI
 }
 
 type Client struct {

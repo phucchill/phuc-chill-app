@@ -53,7 +53,8 @@ type Room struct {
 	HostID        string
 	Clients       map[*Client]bool
 	Pending       map[string]*Client
-	ApprovedUsers map[string]bool // user đã được duyệt vào phòng riêng tư
+	ApprovedUsers map[string]bool
+	BannedUsers   map[string]bool
 	CurrentSong   string
 	IsPlaying     bool
 	Progress      float64
@@ -62,33 +63,12 @@ type Room struct {
 	KTV           *KTVState
 	Queue         *QueueState
 
-	// Permissions cấu hình quyền thêm bài hát (Search/Upload/YouTube) —
-	// Host chỉnh trong Room Settings qua message PERMISSIONS_UPDATE.
-	// Được khởi tạo mặc định (model.DefaultRoomPermissions()) khi phòng
-	// vừa tạo, hiện CHƯA được persist qua Mongo (xem models/room.go).
 	Permissions model.RoomPermissions
 
-	// CurrentQueueSong lưu metadata (title/artist/thumbnail/songSrc) của
-	// bài đang phát, NẾU bài đó tới từ Danh sách chờ (Next/Prev/duyệt).
-	// nil nếu host chọn bài trực tiếp từ SongPicker qua SYNC_PLAY (không
-	// đi qua hàng chờ) — trường hợp đó Prev sẽ không có gì để lùi về.
 	CurrentQueueSong *QueueSong
 
-	// LastRequestAt chống spam: userID -> thời điểm request bài gần nhất.
 	LastRequestAt map[string]time.Time
 
-	// ShuffleEnabled/RepeatMode/CurrentSongLiked — điều khiển CÁCH PHÁT
-	// nhạc (xem playback_handler.go). Chỉ sống trong bộ nhớ Hub, giống
-	// Permissions, KHÔNG persist Mongo.
-	//   ShuffleEnabled: true thì PLAYER_NEXT chọn ngẫu nhiên bài "queued"
-	//     thay vì lấy bài đầu hàng chờ. Chỉ Host bật/tắt được.
-	//   RepeatMode: "off" | "one" | "all". "one" lặp lại đúng bài đang
-	//     phát mỗi khi Next/Prev/hết bài. "all" đẩy bài vừa phát xong về
-	//     cuối hàng chờ thay vì xóa hẳn, tạo vòng lặp vô hạn qua queue.
-	//     Chỉ Host đổi được.
-	//   CurrentSongLiked: like dùng CHUNG cho cả phòng, áp dụng cho bài
-	//     đang phát — ai cũng bấm được, tự reset về false mỗi khi bài đổi
-	//     (Next/Prev/host chọn bài mới từ SongPicker).
 	ShuffleEnabled   bool
 	RepeatMode       string
 	CurrentSongLiked bool
@@ -144,24 +124,24 @@ type RoomState struct {
 	Progress     float64       `json:"progress"`
 	Participants []Participant `json:"participants"`
 
-	// Metadata bài đang phát — chỉ có giá trị khi bài tới từ hàng chờ
-	// (Next/Prev/QUEUE_APPROVE trực tiếp). Rỗng nếu host chọn qua
-	// SongPicker (SYNC_PLAY thuần) như trước giờ — không đổi hành vi cũ.
 	SongTitle  string `json:"songTitle,omitempty"`
 	SongArtist string `json:"songArtist,omitempty"`
 	SongCover  string `json:"songCover,omitempty"`
 
-	ActiveMicUID string             `json:"activeMicUid"`
-	MicRequests  []model.MicRequest `json:"micRequests"`
+	// ── KTV: Mic Slots (6 ghế) + hàng chờ ──
+	MicSlots    [model.MaxMicSlots]*model.MicSlot `json:"micSlots"`
+	MicRequests []model.MicRequest                `json:"micRequests"`
+
+	// ── KTV: Room Mode + Spotlight + Memory + Top Singer (in-room only) ──
+	Mode               model.RoomMode          `json:"mode"`
+	CurrentPerformance *model.Performance      `json:"currentPerformance,omitempty"`
+	RoomMemory         []model.RoomMemoryEntry `json:"roomMemory"`
+	TopSingers         []model.TopSingerStats  `json:"topSingers"`
 
 	QueueSongs []QueueSong `json:"queueSongs"`
 
-	// Quyền phòng hiện tại — frontend dùng để gate UI (AddSongDialog,
-	// RoomSettingsDialog). Luôn có giá trị (không nil) vì Permissions là
-	// struct value, không phải pointer.
 	Permissions model.RoomPermissions `json:"permissions"`
 
-	// Điều khiển cách phát nhạc — xem ghi chú ở field tương ứng trên Room.
 	ShuffleEnabled   bool   `json:"shuffleEnabled"`
 	RepeatMode       string `json:"repeatMode"`
 	CurrentSongLiked bool   `json:"currentSongLiked"`
@@ -176,11 +156,6 @@ type Hub struct {
 	RoomRepo    *repository.RoomRepo
 	KTVRepo     *repository.KTVRepo
 
-	// UploadDir/UploadPublicPath: set từ main.go NGAY SAU khi gọi NewHub
-	// (hub.UploadDir = ...). Dùng ở queue_handler.go để xóa NGAY file
-	// upload khi host chủ động xóa/từ chối khỏi hàng chờ — xem ghi chú
-	// đầy đủ trong handlers/upload_handler.go. Để trống ("") thì bỏ qua
-	// bước xóa sớm này, chỉ còn lưới an toàn là sweeper dọn theo tuổi file.
 	UploadDir        string
 	UploadPublicPath string
 
@@ -253,34 +228,27 @@ func (h *Hub) handleRegister(client *Client) {
 			privacy = dbPrivacy
 			hostID = dbHostID
 
-			// Chỉ tin dbPermissions nếu nó KHÔNG phải zero-value — tài liệu
-			// Mongo được tạo trước khi tính năng permissions tồn tại sẽ
-			// giải mã field "permissions" thành zero-value (tất cả false),
-			// dùng thẳng sẽ vô tình khóa hết quyền của member.
 			if !dbPermissions.IsZero() {
 				permissions = dbPermissions
 			}
 		}
 
 		room = &Room{
-			ID:            client.RoomID,
-			Type:          roomType,
-			Privacy:       privacy,
-			MaxUsers:      maxRoomUsers,
-			HostID:        hostID,
-			Clients:       make(map[*Client]bool),
-			Pending:       make(map[string]*Client),
-			ApprovedUsers: map[string]bool{hostID: true}, // host luôn được duyệt sẵn
-			// Chưa có bài nào được chọn khi phòng vừa tạo — KHÔNG hard-code
-			// về 1 file mp3 cụ thể nữa (file /public/music/sao-hang-a.mp3 đã
-			// bị xóa, toàn bộ nhạc giờ nằm trong /public/Assets/songs).
-			// Host phải tự chọn bài từ SongPicker để bắt đầu phát.
+			ID:               client.RoomID,
+			Type:             roomType,
+			Privacy:          privacy,
+			MaxUsers:         maxRoomUsers,
+			HostID:           hostID,
+			Clients:          make(map[*Client]bool),
+			Pending:          make(map[string]*Client),
+			ApprovedUsers:    map[string]bool{hostID: true},
+			BannedUsers:      make(map[string]bool),
 			CurrentSong:      "",
 			IsPlaying:        false,
 			Progress:         0,
 			LastUpdated:      time.Now(),
 			CloseTimer:       nil,
-			KTV:              &KTVState{},
+			KTV:              NewKTVState(), // ← đổi từ &KTVState{} để Mode/maps được init đúng
 			Queue:            &QueueState{},
 			Permissions:      permissions,
 			CurrentQueueSong: nil,
@@ -312,6 +280,16 @@ func (h *Hub) handleRegister(client *Client) {
 
 	h.removeOldClientLocked(room, client)
 
+	if room.BannedUsers[client.UserID] { // MỚI
+		h.sendDirect(client, "KICKED_FROM_ROOM", map[string]string{
+			"message": "Bạn đã bị host mời ra khỏi phòng này",
+		})
+		h.mu.Unlock()
+		close(client.Send)
+		log.Printf("[Hub] User %s bị chặn vào lại phòng %s (đã bị kick)", client.UserID, client.RoomID)
+		return
+	}
+
 	if len(room.Clients) >= room.MaxUsers {
 		h.sendDirect(client, "ROOM_FULL", map[string]string{
 			"message": "Phòng đã đủ 10 người",
@@ -321,8 +299,6 @@ func (h *Hub) handleRegister(client *Client) {
 		return
 	}
 
-	// Phòng riêng tư: chỉ chặn user chưa từng được duyệt
-	// Host và user đã được duyệt trước đó (ví dụ reload) đều vào thẳng
 	if room.Privacy == "private" && !room.ApprovedUsers[client.UserID] {
 		room.Pending[client.UserID] = client
 
@@ -393,9 +369,6 @@ func (h *Hub) handleUnregister(client *Client) {
 		return
 	}
 
-	// KHÔNG gán host mới ở đây — host chỉ đổi khi họ chủ động LEAVE_ROOM
-	// Nếu host chỉ disconnect/reload thì HostID giữ nguyên, họ reconnect vẫn là host
-
 	h.mu.Unlock()
 	h.broadcastRoomState(client.RoomID)
 }
@@ -441,27 +414,21 @@ func (h *Hub) handleBroadcast(msg Message) {
 		h.handleJoinRejectLocked(room, msg)
 
 	case "LEAVE_ROOM":
-		// Phương án A: host chủ động rời phòng → gán host mới ngay lập tức
-		// Member thường rời → không cần làm gì thêm (handleUnregister lo)
 		if room.isHost(msg.SenderID) && len(room.Clients) > 1 {
 			for next := range room.Clients {
 				if next.UserID != msg.SenderID {
 					room.HostID = next.UserID
-					room.ApprovedUsers[next.UserID] = true // host mới cũng được duyệt sẵn
+					room.ApprovedUsers[next.UserID] = true
 					log.Printf("[Hub] Host %s rời phòng %s, host mới: %s",
 						msg.SenderID, msg.RoomID, room.HostID)
 					break
 				}
 			}
 		}
-		// Việc xóa client khỏi room.Clients và broadcast ROOM_STATE mới
-		// sẽ do handleUnregister xử lý khi WS thực sự đóng
 
 	case "END_ROOM":
-		// Quyền đã được kiểm tra ở hostOnlyMessages — xử lý thật sau unlock
 
 	case "PERMISSIONS_UPDATE":
-		// Quyền đã được kiểm tra ở hostOnlyMessages (chỉ host mới tới được đây).
 		var p model.RoomPermissions
 		if json.Unmarshal(msg.Payload, &p) == nil {
 			room.Permissions = p
@@ -481,8 +448,6 @@ func (h *Hub) handleBroadcast(msg Message) {
 		var p SyncPayload
 		if json.Unmarshal(msg.Payload, &p) == nil {
 			if room.CurrentSong != p.SongID {
-				// Bài đổi thật sự (không phải resync cùng 1 bài) — reset
-				// like, vì like gắn với bài đang phát, không phải phòng.
 				room.CurrentSongLiked = false
 			}
 			room.CurrentSong = p.SongID
@@ -539,8 +504,6 @@ func (h *Hub) handleBroadcast(msg Message) {
 	}
 
 	if msg.Type == "LEAVE_ROOM" {
-		// Không làm gì thêm — handleUnregister sẽ broadcast ROOM_STATE
-		// mới sau khi WS đóng và client bị xóa khỏi room.Clients
 		return
 	}
 
@@ -580,6 +543,8 @@ func (h *Hub) endRoom(roomID string, reason string) {
 	for c := range room.Clients {
 		close(c.Send)
 	}
+	// Xóa phòng khỏi map → toàn bộ KTVState (kể cả Room Memory / Top Singer)
+	// bị giải phóng theo, đúng yêu cầu "Reset automatically when the room closes".
 	delete(h.Rooms, roomID)
 	h.mu.Unlock()
 
@@ -622,8 +587,13 @@ func (h *Hub) sendRoomStateToClient(room *Room, client *Client) {
 		SongArtist: songArtist,
 		SongCover:  songCover,
 
-		ActiveMicUID: room.KTV.ActiveMicUID,
-		MicRequests:  room.KTV.GetMicRequests(),
+		MicSlots:    room.KTV.GetMicSlots(),
+		MicRequests: room.KTV.GetMicRequests(),
+
+		Mode:               room.KTV.GetMode(),
+		CurrentPerformance: room.KTV.GetCurrentPerformance(),
+		RoomMemory:         room.KTV.GetMemory(),
+		TopSingers:         room.KTV.GetTopSingers(),
 
 		QueueSongs:  room.QueueSongs(),
 		Permissions: room.Permissions,
@@ -672,7 +642,7 @@ func (h *Hub) handleJoinApproveLocked(room *Room, msg Message) {
 	}
 
 	delete(room.Pending, p.UserID)
-	room.ApprovedUsers[p.UserID] = true // ghi nhớ đã duyệt — reload sẽ vào thẳng
+	room.ApprovedUsers[p.UserID] = true
 	h.removeOldClientLocked(room, client)
 	room.Clients[client] = true
 
@@ -809,8 +779,13 @@ func (h *Hub) broadcastRoomState(roomID string) {
 		SongArtist: songArtist,
 		SongCover:  songCover,
 
-		ActiveMicUID: room.KTV.ActiveMicUID,
-		MicRequests:  room.KTV.GetMicRequests(),
+		MicSlots:    room.KTV.GetMicSlots(),
+		MicRequests: room.KTV.GetMicRequests(),
+
+		Mode:               room.KTV.GetMode(),
+		CurrentPerformance: room.KTV.GetCurrentPerformance(),
+		RoomMemory:         room.KTV.GetMemory(),
+		TopSingers:         room.KTV.GetTopSingers(),
 
 		QueueSongs:  room.QueueSongs(),
 		Permissions: room.Permissions,
